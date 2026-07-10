@@ -89,3 +89,63 @@ func (c *Client) FetchAreas(ctx context.Context) ([]Room, error) {
 	}
 	return rooms, nil
 }
+
+type EntityState struct {
+	EntityID     string
+	Domain       string
+	State        string
+	FriendlyName string
+	DeviceClass  string
+}
+
+func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/states", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request states: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("states returned status %d", resp.StatusCode)
+	}
+
+	type rawState struct {
+		EntityID   string `json:"entity_id"`
+		State      string `json:"state"`
+		Attributes struct {
+			FriendlyName string `json:"friendly_name"`
+			DeviceClass  string `json:"device_class"`
+		} `json:"attributes"`
+	}
+	var rawStates []rawState
+	if err := json.NewDecoder(resp.Body).Decode(&rawStates); err != nil {
+		return nil, fmt.Errorf("parse states response: %w", err)
+	}
+
+	states := make(map[string]EntityState, len(rawStates))
+	for _, s := range rawStates {
+		domain := s.EntityID
+		if idx := strings.Index(s.EntityID, "."); idx != -1 {
+			domain = s.EntityID[:idx]
+		}
+		name := s.Attributes.FriendlyName
+		if name == "" {
+			name = s.EntityID
+		}
+		states[s.EntityID] = EntityState{
+			EntityID:     s.EntityID,
+			Domain:       domain,
+			State:        s.State,
+			FriendlyName: name,
+			DeviceClass:  s.Attributes.DeviceClass,
+		}
+	}
+	return states, nil
+}
