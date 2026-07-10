@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFetchAreas_ParsesRooms(t *testing.T) {
@@ -133,5 +134,88 @@ func TestFetchStates_NonOKStatus(t *testing.T) {
 	_, err := client.FetchStates(context.Background())
 	if err == nil {
 		t.Fatal("expected error for 401 response, got nil")
+	}
+}
+
+func TestFetchHistory_ParsesAndFiltersNumericStates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if !strings.HasPrefix(r.URL.Path, "/api/history/period/") {
+			t.Errorf("path = %s, want prefix /api/history/period/", r.URL.Path)
+		}
+		filter := r.URL.Query().Get("filter_entity_id")
+		if !strings.Contains(filter, "sensor.living_room_temp") || !strings.Contains(filter, "sensor.bedroom_temp") {
+			t.Errorf("filter_entity_id = %q, missing expected entity ids", filter)
+		}
+		if r.URL.Query().Get("end_time") == "" {
+			t.Error("end_time query param missing")
+		}
+		fmt.Fprint(w, `[
+			[
+				{"entity_id":"sensor.living_room_temp","state":"20.1","last_changed":"2026-07-10T08:00:00Z"},
+				{"entity_id":"sensor.living_room_temp","state":"20.4","last_changed":"2026-07-10T09:00:00Z"}
+			],
+			[
+				{"entity_id":"sensor.bedroom_temp","state":"unavailable","last_changed":"2026-07-10T08:30:00Z"},
+				{"entity_id":"sensor.bedroom_temp","state":"19.5","last_changed":"2026-07-10T09:30:00Z"}
+			]
+		]`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	start := time.Date(2026, 7, 10, 8, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 7, 10, 10, 0, 0, 0, time.UTC)
+	history, err := client.FetchHistory(context.Background(), []string{"sensor.living_room_temp", "sensor.bedroom_temp"}, start, end)
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("len(history) = %d, want 2", len(history))
+	}
+
+	lr := history["sensor.living_room_temp"]
+	if len(lr) != 2 || lr[0].Value != 20.1 || lr[1].Value != 20.4 {
+		t.Errorf("living room history = %+v", lr)
+	}
+
+	br := history["sensor.bedroom_temp"]
+	if len(br) != 1 || br[0].Value != 19.5 {
+		t.Errorf("bedroom history = %+v, want 1 point (unavailable filtered out)", br)
+	}
+}
+
+func TestFetchHistory_EmptyEntityListSkipsRequest(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	history, err := client.FetchHistory(context.Background(), nil, time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("FetchHistory: %v", err)
+	}
+	if len(history) != 0 {
+		t.Errorf("len(history) = %d, want 0", len(history))
+	}
+	if called {
+		t.Error("expected no HTTP request for an empty entity list")
+	}
+}
+
+func TestFetchHistory_NonOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	_, err := client.FetchHistory(context.Background(), []string{"sensor.x"}, time.Now(), time.Now())
+	if err == nil {
+		t.Fatal("expected error for 500 response, got nil")
 	}
 }

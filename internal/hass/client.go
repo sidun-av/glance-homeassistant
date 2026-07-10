@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -148,4 +149,73 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 		}
 	}
 	return states, nil
+}
+
+type HistoryPoint struct {
+	Time  time.Time
+	Value float64
+}
+
+func (c *Client) FetchHistory(ctx context.Context, entityIDs []string, start, end time.Time) (map[string][]HistoryPoint, error) {
+	if len(entityIDs) == 0 {
+		return map[string][]HistoryPoint{}, nil
+	}
+
+	u := fmt.Sprintf("%s/api/history/period/%s", c.BaseURL, start.UTC().Format(time.RFC3339))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	q := req.URL.Query()
+	q.Set("filter_entity_id", strings.Join(entityIDs, ","))
+	q.Set("end_time", end.UTC().Format(time.RFC3339))
+	q.Set("minimal_response", "true")
+	q.Set("no_attributes", "true")
+	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request history: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("history returned status %d", resp.StatusCode)
+	}
+
+	type rawPoint struct {
+		EntityID    string `json:"entity_id"`
+		State       string `json:"state"`
+		LastChanged string `json:"last_changed"`
+	}
+	var series [][]rawPoint
+	if err := json.NewDecoder(resp.Body).Decode(&series); err != nil {
+		return nil, fmt.Errorf("parse history response: %w", err)
+	}
+
+	out := make(map[string][]HistoryPoint)
+	for _, points := range series {
+		if len(points) == 0 {
+			continue
+		}
+		entityID := points[0].EntityID
+		hist := make([]HistoryPoint, 0, len(points))
+		for _, p := range points {
+			value, err := strconv.ParseFloat(p.State, 64)
+			if err != nil {
+				continue
+			}
+			t, err := time.Parse(time.RFC3339, p.LastChanged)
+			if err != nil {
+				continue
+			}
+			hist = append(hist, HistoryPoint{Time: t, Value: value})
+		}
+		if len(hist) > 0 {
+			out[entityID] = hist
+		}
+	}
+	return out, nil
 }
