@@ -1,0 +1,21 @@
+home_assistant:
+  url: ${HA_URL}
+  token: ${HA_TOKEN}
+
+public_url: /ha-widget   # path (reverse-proxied, same origin as Glance) or full origin (direct LAN port)
+
+title: Home
+
+temperature:
+  range: 24h
+  max_points: 60
+  chart_height: 34  # sparkline: chart height in px. bars: bar area height (label rows added on top)
+  chart_style: sparkline  # or: bars
+
+live:
+  poll_interval: 10s
+  pause_when_hidden: true
+
+sensors:
+  contact_device_classes: [door, window, garage_door, opening]
+  motion_device_classes: [motion, occupancy]
