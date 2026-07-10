@@ -105,10 +105,14 @@ The bootstrap script:
   down, since the JS execution context simply ceases to exist. This is what gives us "live only
   while the page is open" with no separate on/off signaling needed.
 
-`/live.json` does its own bulk `GET /api/states` call against HA (no template/history calls —
-those stay on the slow `/widget` path) and applies a small (2-3s) in-memory response cache purely
-as a safety net against multiple simultaneous tabs/devices hammering HA; not meant to add
-perceptible staleness at a 10s poll interval.
+`/live.json` does its own bulk `GET /api/states` call against HA on every poll (no history calls —
+those stay on the slow `/widget` path), but reuses a shared, in-process `AreaCache` for the
+room→entity classification instead of re-calling `/api/template` every ~10s: areas rarely change,
+so the cache serves the last known room/entity mapping for a configurable TTL (5 minutes),
+transparently re-fetching once stale, and — if HA is unreachable at refresh time — serving the
+last-known mapping rather than failing outright. `/widget` reads from the same cache, so a normal
+page reload also keeps it warm. This is a genuine shared component (`internal/hass/cache.go`), not
+just a response-level dedupe.
 
 **Network requirement:** the *browser* — not just our container — must be able to reach
 `/live.json`. The user reaches Glance today through NPMplus, both on the local network and
@@ -181,6 +185,28 @@ server metrics):
    `glance-grafana-sparkline` (ported into this repo, not imported as a dependency — small enough
    to duplicate, ~50 lines).
 
+## Temperature display styles
+
+Per user request (pointed at the existing built-in WEATHER widget's bar chart as a reference),
+TEMPERATURE panels support two interchangeable render styles, chosen globally via
+`temperature.chart_style` (default `sparkline`):
+
+- **`sparkline`** (default) — the style already approved in the mockup: room name + big current
+  value in a header row, thin auto-scaled line+fill chart below, matching the SERVER STATS
+  widget's own visual language.
+- **`bars`** — mirrors Glance's own WEATHER widget: rounded-cap vertical bars (one per resampled
+  bucket), auto min/max-scaled like the sparkline (with a small minimum bar height floor so the
+  lowest point stays visible instead of disappearing), opacity ramping from dim (oldest) to full
+  brightness (most recent bar, matching the "current hour" emphasis in the reference), a value
+  label drawn directly above the most recent bar, and up to 3 sparse x-axis time labels (first /
+  middle / last bucket, `HH:MM`) along the bottom. The room name becomes a small label above the
+  chart instead of a separate header row, since the current-value label now lives inside the
+  chart itself — closer to how the WEATHER widget itself is laid out.
+
+Both styles consume the exact same resampled/averaged series (`internal/hass` resampling is
+unaffected); only `internal/render` differs — `Sparkline(...)` vs `BarChart(...)`, selected by
+`cfg.Temperature.ChartStyle` in the `/widget` handler.
+
 ## Visual design
 
 One widget, titled `Home`, three sections, matching the mockup approved by the user
@@ -212,9 +238,12 @@ home_assistant:
 public_url: /ha-widget   # absolute path (reverse-proxied) or full origin (direct LAN port)
 
 title: Home
-range: 24h
-max_points: 60
-chart_height: 34
+
+temperature:
+  range: 24h
+  max_points: 60
+  chart_height: 34
+  chart_style: sparkline   # or: bars
 
 live:
   poll_interval: 10s
@@ -278,9 +307,11 @@ glance-homeassistant/
   config.go                        # config.yml loading + validation
   config.example.yml
   internal/hass/client.go          # /api/template, /api/states, /api/history/period
+  internal/hass/cache.go           # AreaCache: TTL cache over FetchAreas, stale-on-error fallback
   internal/hass/discover.go        # area/entity classification into rooms
   internal/hass/resample.go        # step-forward-fill + averaging for temperature history
   internal/render/sparkline.go     # ported from glance-grafana-sparkline
+  internal/render/barchart.go      # WEATHER-widget-style bar chart, alternate temperature style
   internal/render/template.go      # full /widget HTML assembly (3 sections + bootstrap script)
   internal/render/live.go          # /live.json JSON assembly
   Dockerfile
