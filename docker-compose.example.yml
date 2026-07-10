@@ -1,0 +1,9 @@
+services:
+  glance-homeassistant:
+    image: ghcr.io/sidun-av/glance-homeassistant:latest
+    restart: unless-stopped
+    environment:
+      - HA_URL=http://homeassistant:8123
+      - HA_TOKEN=${HA_TOKEN}
+    volumes:
+      - ./glance-homeassistant/config.yml:/config.yml:ro
