@@ -7,8 +7,6 @@ import (
 )
 
 type WidgetData struct {
-	Title            string
-	ChartHeight      int
 	ChartStyle       string // "sparkline" or "bars"
 	TemperatureRooms []TemperatureRoomView
 	LightRooms       []LightRoomView
@@ -48,6 +46,8 @@ func styleBlock() string {
 .ha-temp-panel{flex:1;min-width:145px;background:var(--color-widget-background-highlight);border-radius:6px;padding:10px 12px}
 .ha-temp-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
 .ha-temp-room-label{color:var(--color-text-subdue);font-size:.85em;margin-bottom:4px}
+.ha-temp-label{color:var(--color-text-subdue)}
+.ha-temp-value{color:var(--color-text-highlight)}
 .ha-temp-nodata{color:var(--color-text-subdue);font-size:.85em;padding:8px 0}
 .ha-lights-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .ha-light-chip{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--color-widget-background-highlight);border-radius:6px;padding:9px 12px}
@@ -91,11 +91,11 @@ func RenderWidget(data WidgetData) string {
 				b.WriteString(r.SVG)
 			}
 		} else {
-			fmt.Fprintf(&b, `<div class="ha-temp-top"><span class="color-text-subdue">%s</span>`, html.EscapeString(r.Room))
+			fmt.Fprintf(&b, `<div class="ha-temp-top"><span class="ha-temp-label">%s</span>`, html.EscapeString(r.Room))
 			if r.NoData {
-				b.WriteString(`<span class="color-text-base">–</span></div><div class="ha-temp-nodata">no data</div>`)
+				b.WriteString(`<span class="ha-temp-value">–</span></div><div class="ha-temp-nodata">no data</div>`)
 			} else {
-				fmt.Fprintf(&b, `<span class="color-text-base">%s</span></div>%s`, html.EscapeString(r.Value), r.SVG)
+				fmt.Fprintf(&b, `<span class="ha-temp-value">%s</span></div>%s`, html.EscapeString(r.Value), r.SVG)
 			}
 		}
 		b.WriteString(`</div>`)

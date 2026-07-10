@@ -88,11 +88,15 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.HomeAssistant.Token == "" {
 		return nil, fmt.Errorf("home_assistant.token is required")
 	}
-	if _, err := time.ParseDuration(cfg.Temperature.Range); err != nil {
+	if d, err := time.ParseDuration(cfg.Temperature.Range); err != nil {
 		return nil, fmt.Errorf("temperature.range %q must be a Go duration like \"24h\" or \"6h\": %w", cfg.Temperature.Range, err)
+	} else if d <= 0 {
+		return nil, fmt.Errorf("temperature.range must be positive, got %q", cfg.Temperature.Range)
 	}
-	if _, err := time.ParseDuration(cfg.Live.PollInterval); err != nil {
+	if d, err := time.ParseDuration(cfg.Live.PollInterval); err != nil {
 		return nil, fmt.Errorf("live.poll_interval %q must be a Go duration like \"10s\": %w", cfg.Live.PollInterval, err)
+	} else if d <= 0 {
+		return nil, fmt.Errorf("live.poll_interval must be positive, got %q", cfg.Live.PollInterval)
 	}
 	if cfg.Temperature.ChartStyle != "sparkline" && cfg.Temperature.ChartStyle != "bars" {
 		return nil, fmt.Errorf("temperature.chart_style must be \"sparkline\" or \"bars\", got %q", cfg.Temperature.ChartStyle)

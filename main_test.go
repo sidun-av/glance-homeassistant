@@ -119,6 +119,9 @@ func TestLiveHandler_EndToEnd(t *testing.T) {
 	if rec.Header().Get("Content-Type") != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", rec.Header().Get("Content-Type"))
 	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want *", rec.Header().Get("Access-Control-Allow-Origin"))
+	}
 
 	var payload struct {
 		Lights  []map[string]any `json:"lights"`

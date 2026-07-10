@@ -4,9 +4,7 @@ import "testing"
 
 func sampleWidgetData() WidgetData {
 	return WidgetData{
-		Title:       "Home",
-		ChartHeight: 34,
-		ChartStyle:  "sparkline",
+		ChartStyle: "sparkline",
 		TemperatureRooms: []TemperatureRoomView{
 			{Room: "Living Room", Value: "21.4°", SVG: "<svg>lr</svg>"},
 			{Room: "Bedroom", NoData: true},
@@ -62,7 +60,7 @@ func TestRenderWidget_SensorsSection(t *testing.T) {
 }
 
 func TestRenderWidget_EmptySectionsShowFallbackMessages(t *testing.T) {
-	data := WidgetData{Title: "Home", ChartStyle: "sparkline"}
+	data := WidgetData{ChartStyle: "sparkline"}
 	html := RenderWidget(data)
 	if !contains(html, "no rooms with a temperature sensor") {
 		t.Errorf("html missing empty-temperature fallback")

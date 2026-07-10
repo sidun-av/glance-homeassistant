@@ -15,10 +15,10 @@ func TestBuildModel_ClassifiesByDomainAndDeviceClass(t *testing.T) {
 		{Name: "Bedroom", EntityIDs: []string{"light.bed_main", "binary_sensor.bed_motion"}},
 	}
 	states := map[string]EntityState{
-		"sensor.lr_temp":         {EntityID: "sensor.lr_temp", Domain: "sensor", State: "21.4", DeviceClass: "temperature", FriendlyName: "LR Temp"},
-		"light.lr_main":          {EntityID: "light.lr_main", Domain: "light", State: "on", FriendlyName: "LR Main"},
-		"binary_sensor.lr_window": {EntityID: "binary_sensor.lr_window", Domain: "binary_sensor", State: "on", DeviceClass: "window", FriendlyName: "LR Window"},
-		"light.bed_main":         {EntityID: "light.bed_main", Domain: "light", State: "off", FriendlyName: "Bed Main"},
+		"sensor.lr_temp":           {EntityID: "sensor.lr_temp", Domain: "sensor", State: "21.4", DeviceClass: "temperature", FriendlyName: "LR Temp"},
+		"light.lr_main":            {EntityID: "light.lr_main", Domain: "light", State: "on", FriendlyName: "LR Main"},
+		"binary_sensor.lr_window":  {EntityID: "binary_sensor.lr_window", Domain: "binary_sensor", State: "on", DeviceClass: "window", FriendlyName: "LR Window"},
+		"light.bed_main":           {EntityID: "light.bed_main", Domain: "light", State: "off", FriendlyName: "Bed Main"},
 		"binary_sensor.bed_motion": {EntityID: "binary_sensor.bed_motion", Domain: "binary_sensor", State: "off", DeviceClass: "motion", FriendlyName: "Bed Motion"},
 	}
 

@@ -116,6 +116,19 @@ temperature:
 	}
 }
 
+func TestLoadConfig_NegativeRange(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+temperature:
+  range: -1h
+`)
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("expected error for non-positive temperature.range, got nil")
+	}
+}
+
 func TestLoadConfig_InvalidPollInterval(t *testing.T) {
 	path := writeTempConfig(t, `
 home_assistant:
@@ -126,6 +139,19 @@ live:
 `)
 	if _, err := LoadConfig(path); err == nil {
 		t.Fatal("expected error for invalid live.poll_interval, got nil")
+	}
+}
+
+func TestLoadConfig_ZeroPollInterval(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+live:
+  poll_interval: 0s
+`)
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("expected error for non-positive live.poll_interval, got nil")
 	}
 }
 

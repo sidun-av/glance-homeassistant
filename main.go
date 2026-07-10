@@ -128,8 +128,6 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	widgetData := render.WidgetData{
-		Title:            a.cfg.Title,
-		ChartHeight:      a.cfg.Temperature.ChartHeight,
 		ChartStyle:       a.cfg.Temperature.ChartStyle,
 		TemperatureRooms: tempViews,
 		LightRooms:       lightViews,
@@ -146,6 +144,8 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	model, err := a.buildModel(ctx)
 	if err != nil {
