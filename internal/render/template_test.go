@@ -74,7 +74,11 @@ func TestRenderWidget_RoomCardIncludesOccupancyAndContact(t *testing.T) {
 	if !contains(html, `data-sensor-name="LR Motion"`) || !contains(html, ">Occupied<") {
 		t.Errorf("html missing occupancy chip")
 	}
-	if !contains(html, `data-sensor-name="LR Window"`) || !contains(html, "Open") {
+	// ">Open<", not a bare "Open" — same durability reasoning as the
+	// ">Occupied<" check above: not currently vacuous, but hardened against
+	// a future edit introducing a capital "Open" anywhere in the static
+	// styleBlock/bootstrapScript text.
+	if !contains(html, `data-sensor-name="LR Window"`) || !contains(html, ">Open<") {
 		t.Errorf("html missing contact badge")
 	}
 }
