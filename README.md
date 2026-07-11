@@ -1,9 +1,10 @@
 # glance-homeassistant
 
 A [Glance](https://github.com/glanceapp/glance) extension widget that shows Home Assistant data
-in Glance's own visual language: room temperature (sparkline or bar-chart style), which lights
-are on per room, and contact/motion sensor state — with lights and sensors updating live in the
-browser while the dashboard tab stays open.
+as one adaptive grid of per-room cards — each room's temperature (sparkline or bar-chart style),
+lights (with their real HA icons), and occupancy/contact sensors together at a glance — with
+lights and sensors updating live in the browser while the dashboard tab stays open. A room's card
+grows automatically the more it has to show; a room with nothing classified gets no card at all.
 
 ## How it works
 
@@ -113,7 +114,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `TITLE` | `title` | `Home` | Widget title shown in Glance |
 | `TEMPERATURE_RANGE` | `temperature.range` | `24h` | Historical window for the temperature chart, a Go duration (`h`/`m`/`s` units only) |
 | `TEMPERATURE_MAX_POINTS` | `temperature.max_points` | `60` | Points per room's temperature series (resolution) |
-| `TEMPERATURE_CHART_HEIGHT` | `temperature.chart_height` | `34` | Chart height in px (bars add extra space above/below for labels automatically) |
+| `TEMPERATURE_CHART_HEIGHT` | `temperature.chart_height` | `130` | Base minimum room-card height in px — cards with more to show (lights, occupancy, contact) grow taller automatically |
 | `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `sparkline` | `sparkline` or `bars` |
 | `LIVE_POLL_INTERVAL` | `live.poll_interval` | `10s` | How often the browser polls `/live.json` while the tab is open |
 | `LIVE_PAUSE_WHEN_HIDDEN` | `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
@@ -131,10 +132,10 @@ the environment before any config is loaded, so they're always plain environment
 ## Error handling
 
 If Home Assistant is unreachable, the whole widget shows a single "Home Assistant unavailable"
-message instead of Glance's generic widget-failed state. If a specific room has no temperature
-history, only that room's panel shows "no data" — the rest of the widget still renders normally.
-`/live.json` failing at poll time leaves the last-known lights/sensors state on screen rather than
-clearing it, and retries on the next interval.
+message instead of Glance's generic widget-failed state. If a specific room has a temperature
+sensor but no history data right now, only that room's card shows "no data" — the rest of the
+widget still renders normally. `/live.json` failing at poll time leaves the last-known lights/
+sensors state on screen rather than clearing it, and retries on the next interval.
 
 ## Out of scope (for now)
 

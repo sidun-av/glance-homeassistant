@@ -38,8 +38,8 @@ home_assistant:
 	if cfg.Temperature.MaxPoints != 60 {
 		t.Errorf("Temperature.MaxPoints = %d, want 60", cfg.Temperature.MaxPoints)
 	}
-	if cfg.Temperature.ChartHeight != 34 {
-		t.Errorf("Temperature.ChartHeight = %d, want 34", cfg.Temperature.ChartHeight)
+	if cfg.Temperature.ChartHeight != 130 {
+		t.Errorf("Temperature.ChartHeight = %d, want 130", cfg.Temperature.ChartHeight)
 	}
 	if cfg.Temperature.ChartStyle != "sparkline" {
 		t.Errorf("Temperature.ChartStyle = %q, want %q", cfg.Temperature.ChartStyle, "sparkline")

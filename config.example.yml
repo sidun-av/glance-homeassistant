@@ -16,7 +16,7 @@ title: Home   # env: TITLE
 temperature:
   range: 24h   # env: TEMPERATURE_RANGE
   max_points: 60   # env: TEMPERATURE_MAX_POINTS
-  chart_height: 34   # env: TEMPERATURE_CHART_HEIGHT — chart area height in px; a small axis-label row is added below (both styles) and a value-label row above (bars only)
+  chart_height: 130   # env: TEMPERATURE_CHART_HEIGHT — base minimum card height in px; a room's card grows taller automatically the more it has to show (lights, occupancy, contact), scaling from this base
   chart_style: sparkline   # env: TEMPERATURE_CHART_STYLE — or: bars
 
 live:

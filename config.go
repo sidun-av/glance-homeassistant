@@ -66,7 +66,7 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Temperature.MaxPoints = 60
 	}
 	if cfg.Temperature.ChartHeight == 0 {
-		cfg.Temperature.ChartHeight = 34
+		cfg.Temperature.ChartHeight = 130
 	}
 	if cfg.Temperature.ChartStyle == "" {
 		cfg.Temperature.ChartStyle = "sparkline"
