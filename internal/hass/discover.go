@@ -2,27 +2,32 @@ package hass
 
 import "sort"
 
-type Model struct {
-	TemperatureRooms []TemperatureRoom
-	LightRooms       []LightRoom
-	Sensors          []SensorEntity
-}
-
 type TemperatureRoom struct {
 	Room      string
 	EntityIDs []string
 }
 
-type LightRoom struct {
-	Room  string
-	On    int
-	Total int
+type Light struct {
+	EntityID string
+	Name     string
+	On       bool
+	Icon     string
 }
 
 type SensorEntity struct {
+	Room      string
 	Name      string
 	Attention bool
 	Label     string
+}
+
+type RoomCard struct {
+	Room        string
+	Temperature *TemperatureRoom
+	Lights      []Light
+	Occupancy   []SensorEntity
+	Contacts    []SensorEntity
+	Weight      int
 }
 
 type ClassificationConfig struct {
@@ -39,10 +44,20 @@ func contains(list []string, v string) bool {
 	return false
 }
 
-func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationConfig) Model {
-	tempByRoom := make(map[string]*TemperatureRoom)
-	lightByRoom := make(map[string]*LightRoom)
-	var sensors []SensorEntity
+type roomBuilder struct {
+	temp      *TemperatureRoom
+	lights    []Light
+	occupancy []SensorEntity
+	contacts  []SensorEntity
+}
+
+// BuildModel classifies each area's entities into a per-room card:
+// temperature (sensor, device_class "temperature"), lights (domain
+// "light"), occupancy and contact (binary_sensor, device_class from cfg).
+// A room with none of these classified is dropped entirely — there is
+// nothing for its card to show.
+func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationConfig) []RoomCard {
+	byRoom := make(map[string]*roomBuilder)
 
 	for _, room := range rooms {
 		for _, entityID := range room.EntityIDs {
@@ -51,25 +66,26 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 				continue
 			}
 
+			b, exists := byRoom[room.Name]
+			if !exists {
+				b = &roomBuilder{}
+				byRoom[room.Name] = b
+			}
+
 			switch {
 			case state.Domain == "sensor" && state.DeviceClass == "temperature":
-				tr, exists := tempByRoom[room.Name]
-				if !exists {
-					tr = &TemperatureRoom{Room: room.Name}
-					tempByRoom[room.Name] = tr
+				if b.temp == nil {
+					b.temp = &TemperatureRoom{Room: room.Name}
 				}
-				tr.EntityIDs = append(tr.EntityIDs, entityID)
+				b.temp.EntityIDs = append(b.temp.EntityIDs, entityID)
 
 			case state.Domain == "light":
-				lr, exists := lightByRoom[room.Name]
-				if !exists {
-					lr = &LightRoom{Room: room.Name}
-					lightByRoom[room.Name] = lr
-				}
-				lr.Total++
-				if state.State == "on" {
-					lr.On++
-				}
+				b.lights = append(b.lights, Light{
+					EntityID: entityID,
+					Name:     state.FriendlyName,
+					On:       state.State == "on",
+					Icon:     state.Icon,
+				})
 
 			case state.Domain == "binary_sensor" && contains(cfg.ContactDeviceClasses, state.DeviceClass):
 				if state.State != "on" && state.State != "off" {
@@ -80,7 +96,7 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 				if attention {
 					label = "Open"
 				}
-				sensors = append(sensors, SensorEntity{Name: state.FriendlyName, Attention: attention, Label: label})
+				b.contacts = append(b.contacts, SensorEntity{Room: room.Name, Name: state.FriendlyName, Attention: attention, Label: label})
 
 			case state.Domain == "binary_sensor" && contains(cfg.MotionDeviceClasses, state.DeviceClass):
 				if state.State != "on" && state.State != "off" {
@@ -89,25 +105,38 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 				attention := state.State == "on"
 				label := "Clear"
 				if attention {
-					label = "Motion"
+					label = "Occupied"
 				}
-				sensors = append(sensors, SensorEntity{Name: state.FriendlyName, Attention: attention, Label: label})
+				b.occupancy = append(b.occupancy, SensorEntity{Room: room.Name, Name: state.FriendlyName, Attention: attention, Label: label})
 			}
 		}
 	}
 
-	model := Model{}
-	for _, tr := range tempByRoom {
-		model.TemperatureRooms = append(model.TemperatureRooms, *tr)
+	cards := make([]RoomCard, 0, len(byRoom))
+	for name, b := range byRoom {
+		if b.temp == nil && len(b.lights) == 0 && len(b.occupancy) == 0 && len(b.contacts) == 0 {
+			continue
+		}
+		weight := len(b.lights)
+		if b.temp != nil {
+			weight += 2
+		}
+		if len(b.occupancy) > 0 {
+			weight++
+		}
+		if len(b.contacts) > 0 {
+			weight++
+		}
+		cards = append(cards, RoomCard{
+			Room:        name,
+			Temperature: b.temp,
+			Lights:      b.lights,
+			Occupancy:   b.occupancy,
+			Contacts:    b.contacts,
+			Weight:      weight,
+		})
 	}
-	for _, lr := range lightByRoom {
-		model.LightRooms = append(model.LightRooms, *lr)
-	}
-	model.Sensors = sensors
 
-	sort.Slice(model.TemperatureRooms, func(i, j int) bool { return model.TemperatureRooms[i].Room < model.TemperatureRooms[j].Room })
-	sort.Slice(model.LightRooms, func(i, j int) bool { return model.LightRooms[i].Room < model.LightRooms[j].Room })
-	sort.Slice(model.Sensors, func(i, j int) bool { return model.Sensors[i].Name < model.Sensors[j].Name })
-
-	return model
+	sort.Slice(cards, func(i, j int) bool { return cards[i].Room < cards[j].Room })
+	return cards
 }
