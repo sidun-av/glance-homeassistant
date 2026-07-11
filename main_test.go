@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sidun-av/glance-homeassistant/internal/hass"
 )
 
 func fakeHAServer(t *testing.T) *httptest.Server {
@@ -17,13 +19,14 @@ func fakeHAServer(t *testing.T) *httptest.Server {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/template":
 			fmt.Fprint(w, `[
 				{"id":"living_room","name":"Living Room","entities":["sensor.lr_temp","light.lr_main"]},
-				{"id":"hallway","name":"Hallway","entities":["binary_sensor.front_door"]}
+				{"id":"hallway","name":"Hallway","entities":["binary_sensor.front_door","binary_sensor.hall_motion"]}
 			]`)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/states":
 			fmt.Fprint(w, `[
 				{"entity_id":"sensor.lr_temp","state":"21.4","attributes":{"friendly_name":"LR Temp","device_class":"temperature"}},
-				{"entity_id":"light.lr_main","state":"on","attributes":{"friendly_name":"LR Main"}},
-				{"entity_id":"binary_sensor.front_door","state":"off","attributes":{"friendly_name":"Front Door","device_class":"door"}}
+				{"entity_id":"light.lr_main","state":"on","attributes":{"friendly_name":"LR Main","icon":"mdi:track-light"}},
+				{"entity_id":"binary_sensor.front_door","state":"off","attributes":{"friendly_name":"Front Door","device_class":"door"}},
+				{"entity_id":"binary_sensor.hall_motion","state":"on","attributes":{"friendly_name":"Hall Motion","device_class":"motion"}}
 			]`)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/history/period/"):
 			now := time.Now().UTC().Format(time.RFC3339)
@@ -40,7 +43,7 @@ func testConfig(haURL string) *Config {
 		HomeAssistant: HomeAssistantConfig{URL: haURL, Token: "test-token"},
 		PublicURL:     "/ha-widget",
 		Title:         "Home",
-		Temperature:   TemperatureConfig{Range: "24h", MaxPoints: 5, ChartHeight: 34, ChartStyle: "sparkline"},
+		Temperature:   TemperatureConfig{Range: "24h", MaxPoints: 5, ChartHeight: 130, ChartStyle: "sparkline"},
 		Live:          LiveConfig{PollInterval: "10s", PauseWhenHidden: &pause},
 		Sensors: SensorsConfig{
 			ContactDeviceClasses: []string{"door", "window", "garage_door", "opening"},
@@ -73,8 +76,14 @@ func TestWidgetHandler_EndToEnd(t *testing.T) {
 	if !strings.Contains(body, "Living Room") {
 		t.Errorf("body missing Living Room")
 	}
+	if !strings.Contains(body, `class="track-light"`) {
+		t.Errorf("body missing the light's real HA icon glyph")
+	}
 	if !strings.Contains(body, "Front Door") {
-		t.Errorf("body missing Front Door")
+		t.Errorf("body missing Front Door contact badge")
+	}
+	if !strings.Contains(body, `data-room="Hallway"`) || !strings.Contains(body, `data-occupied="true"`) {
+		t.Errorf("body missing Hallway's occupied state")
 	}
 	if !strings.Contains(body, `data-live-url="/ha-widget/live.json"`) {
 		t.Errorf("body missing correct live URL")
@@ -124,14 +133,13 @@ func TestLiveHandler_EndToEnd(t *testing.T) {
 	}
 
 	var payload struct {
-		Lights  []map[string]any `json:"lights"`
-		Sensors []map[string]any `json:"sensors"`
+		Rooms []map[string]any `json:"rooms"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(payload.Lights) != 1 || len(payload.Sensors) != 1 {
-		t.Errorf("payload = %+v, want 1 light room and 1 sensor", payload)
+	if len(payload.Rooms) != 2 {
+		t.Errorf("payload = %+v, want 2 rooms with live-updatable data (Living Room's light, Hallway's contact+motion)", payload)
 	}
 }
 
@@ -182,5 +190,62 @@ func TestSparseAxisLabels(t *testing.T) {
 	}
 	if labels[1] != "" || labels[3] != "" {
 		t.Errorf("labels = %v, want the rest empty", labels)
+	}
+}
+
+func TestSizeClassForWeight(t *testing.T) {
+	cases := []struct {
+		weight int
+		want   string
+	}{
+		{0, ""},
+		{2, ""},
+		{3, "ha-size-md"},
+		{4, "ha-size-md"},
+		{5, "ha-size-lg"},
+		{9, "ha-size-lg"},
+	}
+	for _, c := range cases {
+		if got := sizeClassForWeight(c.weight); got != c.want {
+			t.Errorf("sizeClassForWeight(%d) = %q, want %q", c.weight, got, c.want)
+		}
+	}
+}
+
+func TestRoomCardView_ComputesLitAndOccupiedFromEntities(t *testing.T) {
+	card := hass.RoomCard{
+		Room:      "Bedroom",
+		Lights:    []hass.Light{{EntityID: "light.a", On: false}, {EntityID: "light.b", On: true, Icon: "mdi:led-strip-variant"}},
+		Occupancy: []hass.SensorEntity{{Room: "Bedroom", Name: "Bed Motion", Attention: true, Label: "Occupied"}},
+		Weight:    3,
+	}
+	view := roomCardView(card)
+
+	if !view.Lit {
+		t.Error("Lit = false, want true (one light is on)")
+	}
+	if !view.Occupied {
+		t.Error("Occupied = false, want true (occupancy sensor attention)")
+	}
+	if len(view.Lights) != 2 || view.Lights[1].EntityID != "light.b" || !view.Lights[1].On {
+		t.Errorf("Lights = %+v", view.Lights)
+	}
+	if view.SizeClass != "ha-size-md" {
+		t.Errorf("SizeClass = %q, want ha-size-md", view.SizeClass)
+	}
+}
+
+func TestRoomCardView_AllLightsOffAndNoOccupancyIsNotLitOrOccupied(t *testing.T) {
+	card := hass.RoomCard{
+		Room:   "Office",
+		Lights: []hass.Light{{EntityID: "light.a", On: false}},
+		Weight: 1,
+	}
+	view := roomCardView(card)
+	if view.Lit {
+		t.Error("Lit = true, want false (no light is on)")
+	}
+	if view.Occupied {
+		t.Error("Occupied = true, want false (no occupancy sensor)")
 	}
 }
