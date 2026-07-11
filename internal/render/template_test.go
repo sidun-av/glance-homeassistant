@@ -66,7 +66,12 @@ func TestRenderWidget_RoomCardIncludesLights(t *testing.T) {
 
 func TestRenderWidget_RoomCardIncludesOccupancyAndContact(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
-	if !contains(html, `data-sensor-name="LR Motion"`) || !contains(html, "Occupied") {
+	// ">Occupied<", not a bare "Occupied" — the bootstrap script declares a
+	// JS variable literally named anyOccupied, which contains "Occupied" as
+	// a substring and is always present on the page regardless of this
+	// room's data, so a bare check would never actually verify the chip's
+	// label text was rendered.
+	if !contains(html, `data-sensor-name="LR Motion"`) || !contains(html, ">Occupied<") {
 		t.Errorf("html missing occupancy chip")
 	}
 	if !contains(html, `data-sensor-name="LR Window"`) || !contains(html, "Open") {
