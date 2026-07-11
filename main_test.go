@@ -82,8 +82,14 @@ func TestWidgetHandler_EndToEnd(t *testing.T) {
 	if !strings.Contains(body, "Front Door") {
 		t.Errorf("body missing Front Door contact badge")
 	}
-	if !strings.Contains(body, `data-room="Hallway"`) || !strings.Contains(body, `data-occupied="true"`) {
-		t.Errorf("body missing Hallway's occupied state")
+	// Combined into one substring, not separate data-room/data-occupied
+	// checks — the widget's static CSS also contains data-occupied="true"
+	// on its own (as part of its [data-occupied="true"] attribute
+	// selectors), so a bare check would pass even if Hallway's own <div>
+	// never got the attribute. Hallway has no lights in this fixture, so
+	// data-lit="false" is the expected value alongside it.
+	if !strings.Contains(body, `data-room="Hallway" data-lit="false" data-occupied="true">`) {
+		t.Errorf("body missing Hallway's occupied state on its own element")
 	}
 	if !strings.Contains(body, `data-live-url="/ha-widget/live.json"`) {
 		t.Errorf("body missing correct live URL")
