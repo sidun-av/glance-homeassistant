@@ -1,21 +1,28 @@
+# Every field below can also be set via an environment variable, which
+# always takes priority over whatever's written here — see README.md's
+# "Environment variable reference" for the full list (e.g. HA_URL, HA_TOKEN,
+# PUBLIC_URL, ...). That's the intended way to configure this image from a
+# GUI stack manager like Komodo, with no file to mount or edit at all.
+# This file is for hand-editing a mounted config.yml instead.
+
 home_assistant:
-  url: ${HA_URL}
-  token: ${HA_TOKEN}
+  url: http://homeassistant:8123   # env: HA_URL
+  token: replace-with-a-long-lived-access-token   # env: HA_TOKEN
 
-public_url: /ha-widget   # path (reverse-proxied, same origin as Glance) or full origin (direct LAN port)
+public_url: /ha-widget   # env: PUBLIC_URL — path (reverse-proxied, same origin as Glance) or full origin (direct LAN port)
 
-title: Home
+title: Home   # env: TITLE
 
 temperature:
-  range: 24h
-  max_points: 60
-  chart_height: 34  # sparkline: chart height in px. bars: bar area height (label rows added on top)
-  chart_style: sparkline  # or: bars
+  range: 24h   # env: TEMPERATURE_RANGE
+  max_points: 60   # env: TEMPERATURE_MAX_POINTS
+  chart_height: 34   # env: TEMPERATURE_CHART_HEIGHT — sparkline: chart height in px. bars: bar area height (label rows added on top)
+  chart_style: sparkline   # env: TEMPERATURE_CHART_STYLE — or: bars
 
 live:
-  poll_interval: 10s
-  pause_when_hidden: true
+  poll_interval: 10s   # env: LIVE_POLL_INTERVAL
+  pause_when_hidden: true   # env: LIVE_PAUSE_WHEN_HIDDEN
 
 sensors:
-  contact_device_classes: [door, window, garage_door, opening]
-  motion_device_classes: [motion, occupancy]
+  contact_device_classes: [door, window, garage_door, opening]   # env: SENSORS_CONTACT_DEVICE_CLASSES (comma-separated)
+  motion_device_classes: [motion, occupancy]   # env: SENSORS_MOTION_DEVICE_CLASSES (comma-separated)

@@ -3,7 +3,25 @@ services:
     image: ghcr.io/sidun-av/glance-homeassistant:latest
     restart: unless-stopped
     environment:
-      - HA_URL=http://homeassistant:8123
+      # Required — your Home Assistant instance and a long-lived access token.
+      - HA_URL=${HA_URL}
       - HA_TOKEN=${HA_TOKEN}
-    volumes:
-      - ./glance-homeassistant/config.yml:/config.yml:ro
+      # Optional — every one of these has a built-in default; only set the
+      # ones you want to change. If you're deploying via a GUI stack manager
+      # (e.g. Komodo, pointed at this repo), set these in its "Environment"
+      # tab and you never need to touch a config file at all.
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      - TITLE=${TITLE:-}
+      - TEMPERATURE_RANGE=${TEMPERATURE_RANGE:-}
+      - TEMPERATURE_MAX_POINTS=${TEMPERATURE_MAX_POINTS:-}
+      - TEMPERATURE_CHART_HEIGHT=${TEMPERATURE_CHART_HEIGHT:-}
+      - TEMPERATURE_CHART_STYLE=${TEMPERATURE_CHART_STYLE:-}
+      - LIVE_POLL_INTERVAL=${LIVE_POLL_INTERVAL:-}
+      - LIVE_PAUSE_WHEN_HIDDEN=${LIVE_PAUSE_WHEN_HIDDEN:-}
+      - SENSORS_CONTACT_DEVICE_CLASSES=${SENSORS_CONTACT_DEVICE_CLASSES:-}
+      - SENSORS_MOTION_DEVICE_CLASSES=${SENSORS_MOTION_DEVICE_CLASSES:-}
+    # Optional: mount a hand-edited config.yml instead of (or alongside) the
+    # environment variables above — see config.example.yml. Not needed for a
+    # GUI/env-var-only setup; env vars always take priority over this file.
+    # volumes:
+    #   - ./glance-homeassistant/config.yml:/config.yml:ro

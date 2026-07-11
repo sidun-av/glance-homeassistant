@@ -393,3 +393,27 @@ live:
 		t.Errorf("Live.PauseWhenHidden = %v, want explicit false to be preserved", cfg.Live.PauseWhenHidden)
 	}
 }
+
+// TestLoadConfig_DockerDefaultFileWithEnvOverrides guards the file the
+// Dockerfile bakes in as /config.yml: it must parse as valid (if entirely
+// commented-out) YAML, and LoadConfig must succeed against it once HA_URL/
+// HA_TOKEN are supplied purely via environment variables — the deployment
+// mode a GUI stack manager like Komodo relies on.
+func TestLoadConfig_DockerDefaultFileWithEnvOverrides(t *testing.T) {
+	setEnv(t, "HA_URL", "http://homeassistant:8123")
+	setEnv(t, "HA_TOKEN", "test-token")
+
+	cfg, err := LoadConfig("config.docker-default.yml")
+	if err != nil {
+		t.Fatalf("LoadConfig(config.docker-default.yml): %v", err)
+	}
+	if cfg.HomeAssistant.URL != "http://homeassistant:8123" {
+		t.Errorf("HomeAssistant.URL = %q", cfg.HomeAssistant.URL)
+	}
+	if cfg.HomeAssistant.Token != "test-token" {
+		t.Errorf("HomeAssistant.Token = %q", cfg.HomeAssistant.Token)
+	}
+	if cfg.Title != "Home" {
+		t.Errorf("Title = %q, want the built-in default", cfg.Title)
+	}
+}

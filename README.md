@@ -48,18 +48,31 @@ container on its own LAN port instead, set `public_url` to that full origin, e.g
 
 ### 3. Configure
 
-Copy [`config.example.yml`](config.example.yml) to `config.yml` and edit:
+Every setting can be set as an environment variable — no file to create or mount. Env vars always
+take priority over `config.yml`, so the two approaches can be mixed if you want.
 
-- `home_assistant.url` / `home_assistant.token` — reachable from *this container* (e.g. the HA
-  container/host's address on your Docker/LAN network).
-- `public_url` — reachable from *your browser* (see step 2).
-- `temperature.chart_style` — `sparkline` (default, matches the SERVER STATS widget style) or
+- `HA_URL` / `HA_TOKEN` — reachable from *this container* (e.g. the HA container/host's address
+  on your Docker/LAN network).
+- `PUBLIC_URL` — reachable from *your browser* (see step 2).
+- `TEMPERATURE_CHART_STYLE` — `sparkline` (default, matches the SERVER STATS widget style) or
   `bars` (matches the built-in WEATHER widget's bar-chart style).
-- `sensors.contact_device_classes` / `sensors.motion_device_classes` — HA `binary_sensor`
-  device classes to treat as contact/motion sensors, if your setup uses ones not covered by the
-  defaults.
+- `SENSORS_CONTACT_DEVICE_CLASSES` / `SENSORS_MOTION_DEVICE_CLASSES` — comma-separated HA
+  `binary_sensor` device classes, if your setup uses ones not covered by the defaults.
+
+See "Environment variable reference" below for the full list. If you'd rather hand-edit a file
+instead, copy [`config.example.yml`](config.example.yml) to `config.yml`, mount it at `/config.yml`,
+and skip the env vars it covers.
 
 ### 4. Run it alongside Glance
+
+**Option A — Komodo (or any GUI stack manager that can pull a stack from a git repo):**
+
+Point Komodo's Stack source at this repo (`sidun-av/glance-homeassistant`),
+[`docker-compose.example.yml`](docker-compose.example.yml) as the compose file. Then set
+`HA_URL`/`HA_TOKEN` (required) and any other overrides you want in the stack's Environment tab —
+nothing to SSH in and edit. Add it to the same Docker network as Home Assistant.
+
+**Option B — plain `docker compose`:**
 
 ```yaml
 services:
@@ -69,8 +82,7 @@ services:
     environment:
       - HA_URL=http://homeassistant:8123
       - HA_TOKEN=${HA_TOKEN}
-    volumes:
-      - ./glance-homeassistant/config.yml:/config.yml:ro
+      - PUBLIC_URL=/ha-widget
 ```
 
 Add it to the same Docker network as Home Assistant.
@@ -87,24 +99,29 @@ Add it to the same Docker network as Home Assistant.
 `cache: 15m` is intentionally slow — temperature doesn't need to update often, and lights/sensors
 get their freshness from the separate live-update mechanism instead, not from this cache.
 
-## Configuration reference
+## Environment variable reference
 
-| Field | Default | Description |
-|---|---|---|
-| `home_assistant.url` | — (required) | Home Assistant base URL, reachable from this container |
-| `home_assistant.token` | — (required) | Home Assistant long-lived access token |
-| `public_url` | `""` (site root) | Path or origin the *browser* uses to reach this service's `/live.json` |
-| `title` | `Home` | Widget title shown in Glance |
-| `temperature.range` | `24h` | Historical window for the temperature chart, a Go duration (`h`/`m`/`s` units only) |
-| `temperature.max_points` | `60` | Points per room's temperature series (resolution) |
-| `temperature.chart_height` | `34` | Chart height in px (bars add extra space above/below for labels automatically) |
-| `temperature.chart_style` | `sparkline` | `sparkline` or `bars` |
-| `live.poll_interval` | `10s` | How often the browser polls `/live.json` while the tab is open |
-| `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
-| `sensors.contact_device_classes` | `[door, window, garage_door, opening]` | `binary_sensor` device classes shown as Open/Closed |
-| `sensors.motion_device_classes` | `[motion, occupancy]` | `binary_sensor` device classes shown as Motion/Clear |
+Every one of these overrides the matching `config.yml` field when set to a non-empty value — set
+just the ones you want to change (e.g. in Komodo's stack Environment tab) and leave the rest unset
+to use the built-in default (or whatever `config.yml` has, if you're mounting one).
 
-The service itself (not `config.yml`) is also configured via two environment variables:
+| Env var | `config.yml` field | Default | Description |
+|---|---|---|---|
+| `HA_URL` | `home_assistant.url` | — (required) | Home Assistant base URL, reachable from this container |
+| `HA_TOKEN` | `home_assistant.token` | — (required) | Home Assistant long-lived access token |
+| `PUBLIC_URL` | `public_url` | `""` (site root) | Path or origin the *browser* uses to reach this service's `/live.json` |
+| `TITLE` | `title` | `Home` | Widget title shown in Glance |
+| `TEMPERATURE_RANGE` | `temperature.range` | `24h` | Historical window for the temperature chart, a Go duration (`h`/`m`/`s` units only) |
+| `TEMPERATURE_MAX_POINTS` | `temperature.max_points` | `60` | Points per room's temperature series (resolution) |
+| `TEMPERATURE_CHART_HEIGHT` | `temperature.chart_height` | `34` | Chart height in px (bars add extra space above/below for labels automatically) |
+| `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `sparkline` | `sparkline` or `bars` |
+| `LIVE_POLL_INTERVAL` | `live.poll_interval` | `10s` | How often the browser polls `/live.json` while the tab is open |
+| `LIVE_PAUSE_WHEN_HIDDEN` | `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
+| `SENSORS_CONTACT_DEVICE_CLASSES` | `sensors.contact_device_classes` | `door,window,garage_door,opening` | Comma-separated `binary_sensor` device classes shown as Open/Closed |
+| `SENSORS_MOTION_DEVICE_CLASSES` | `sensors.motion_device_classes` | `motion,occupancy` | Comma-separated `binary_sensor` device classes shown as Motion/Clear |
+
+The service's own listen port and config-file path aren't `config.yml` fields — they're read from
+the environment before any config is loaded, so they're always plain environment variables:
 
 | Env var | Default | Description |
 |---|---|---|
