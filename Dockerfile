@@ -7,6 +7,6 @@ RUN CGO_ENABLED=0 go build -o /out/glance-homeassistant .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/glance-homeassistant /glance-homeassistant
-COPY config.example.yml /config.yml
+COPY config.docker-default.yml /config.yml
 EXPOSE 8080
 ENTRYPOINT ["/glance-homeassistant"]
