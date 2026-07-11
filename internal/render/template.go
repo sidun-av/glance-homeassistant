@@ -6,20 +6,6 @@ import (
 	"strings"
 )
 
-// Old types kept for backwards compatibility with live.go (Tasks 6 & 7 will remove)
-type LightRoomView struct {
-	Room  string
-	On    int
-	Total int
-}
-
-type SensorView struct {
-	Name      string
-	Attention bool
-	Label     string
-}
-
-// New types for Task 5 redesign
 type LightView struct {
 	EntityID string
 	IconSVG  string
@@ -91,6 +77,9 @@ func styleBlock(cardMinHeight int) string {
 	.ha-room-temp{font-size:13px;color:var(--color-text-highlight);font-variant-numeric:tabular-nums;white-space:nowrap}
 	.ha-temp-nodata{color:var(--color-text-subdue);font-size:.85em;padding:2px 0}
 	.ha-room-chart{flex:2 1 auto;width:100%%;display:block;min-height:30px}
+	.ha-room-lights{flex:1 1 auto;display:flex;flex-wrap:wrap;align-content:center;align-items:center;gap:10px}
+	.ha-room-lights svg{width:26px;height:26px;flex:none}
+	.ha-room-status{flex:none;display:flex;flex-direction:column;gap:5px}
 
 	.ha-occ-chip{
 	  display:inline-flex;align-items:center;gap:6px;width:fit-content;

@@ -52,11 +52,12 @@ func TestRenderWidget_TemperatureNoDataShowsFallback(t *testing.T) {
 
 func TestRenderWidget_RoomCardIncludesLights(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
-	if !contains(html, `data-entity-id="light.lr_main"`) {
-		t.Errorf("html missing light entity id for live updates")
-	}
-	if !contains(html, `data-on="true"`) {
-		t.Errorf("html missing on-state data attribute")
+	// Combined into one substring (not just "data-on=\"true\"" alone) because
+	// the static CSS block also contains that exact text as part of its
+	// [data-on="true"] attribute selectors — a bare check would pass even if
+	// the actual <span> never got the attribute.
+	if !contains(html, `data-entity-id="light.lr_main" data-on="true"`) {
+		t.Errorf("html missing the light's entity id with its on-state data attribute")
 	}
 	if !contains(html, `class="track-light"`) {
 		t.Errorf("html missing the light's fixture-type glyph")
@@ -75,21 +76,25 @@ func TestRenderWidget_RoomCardIncludesOccupancyAndContact(t *testing.T) {
 
 func TestRenderWidget_RoomCardCarriesLitAndOccupiedState(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
-	if !contains(html, `data-room="Living Room"`) {
-		t.Errorf("html missing data-room attribute for live updates")
-	}
-	if !contains(html, `data-lit="true"`) {
-		t.Errorf("html missing data-lit=\"true\"")
-	}
-	if !contains(html, `data-occupied="true"`) {
-		t.Errorf("html missing data-occupied=\"true\"")
+	// One combined substring, not separate data-room/data-lit/data-occupied
+	// checks — the static CSS block contains data-lit="true" and
+	// data-occupied="true" on their own (as part of its attribute
+	// selectors), so a bare check for either would pass regardless of what
+	// the room's own <div> actually carries. This exact three-attribute
+	// sequence only ever appears on the rendered room element.
+	if !contains(html, `data-room="Living Room" data-lit="true" data-occupied="true">`) {
+		t.Errorf("html missing the room's data-room/data-lit/data-occupied attributes")
 	}
 }
 
 func TestRenderWidget_SizeClassApplied(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
-	if !contains(html, "ha-size-md") {
-		t.Errorf("html missing size class")
+	// The full class attribute value, not a bare "ha-size-md" substring —
+	// the static CSS block also contains "ha-size-md" as part of its
+	// .ha-room.ha-size-md{...} selector, so a bare check would pass even if
+	// no room's <div> ever got the class applied.
+	if !contains(html, `class="ha-room ha-size-md"`) {
+		t.Errorf("html missing the room's size class on its own element")
 	}
 }
 
@@ -102,11 +107,21 @@ func TestRenderWidget_TemperatureOnlyRoomOmitsLightsAndStatus(t *testing.T) {
 	if !contains(html, "Kitchen") || !contains(html, "25.0") {
 		t.Errorf("html missing Kitchen's temperature")
 	}
-	if contains(html, "ha-room-lights") {
-		t.Errorf("html has a lights row for a room with no lights")
+	// Checking for the absence of the actual rendered elements' opening
+	// tags, not just "ha-room-lights"/"ha-room-status"/"data-entity-id="
+	// substrings — those all appear unconditionally elsewhere on the page
+	// regardless of this room's data: the class names in the static
+	// <style> block, and "data-entity-id="/"data-sensor-name=" inside the
+	// bootstrap script's own querySelector template strings. The opening
+	// tags below are real HTML tag syntax ("<span class=...") that neither
+	// the CSS (which uses dot-prefixed selectors like ".ha-light[...]")
+	// nor the JS (which builds selector strings, never HTML tags) ever
+	// produces, so their absence is a genuine, unambiguous check.
+	if contains(html, `<span class="ha-light"`) {
+		t.Errorf("html has a light element for a room with no lights")
 	}
-	if contains(html, "ha-room-status") {
-		t.Errorf("html has a status row for a room with no occupancy/contact")
+	if contains(html, `<span class="ha-occ-chip"`) || contains(html, `<span class="ha-badge"`) {
+		t.Errorf("html has a sensor badge for a room with no occupancy/contact")
 	}
 }
 
