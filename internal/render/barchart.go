@@ -7,8 +7,9 @@ import (
 )
 
 type BarChartOptions struct {
-	Width  float64
-	Height float64
+	Width     float64
+	Height    float64
+	ClassName string
 }
 
 func DefaultBarChartOptions() BarChartOptions {
@@ -23,7 +24,7 @@ func DefaultBarChartOptions() BarChartOptions {
 // sparse x-axis labels wherever axisLabels[i] is non-empty.
 func BarChart(values []float64, axisLabels []string, currentValueLabel string, opts BarChartOptions) string {
 	if len(values) == 0 {
-		return fmt.Sprintf(`<svg viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.Width, opts.Height, opts.Height)
+		return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.ClassName, opts.Width, opts.Height, opts.Height)
 	}
 
 	const topMargin = 14.0
@@ -90,6 +91,6 @@ func BarChart(values []float64, axisLabels []string, currentValueLabel string, o
 			x, opts.Height-2, html.EscapeString(lbl))
 	}
 
-	return fmt.Sprintf(`<svg viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">%s%s%s</svg>`,
-		opts.Width, opts.Height, opts.Height, bars.String(), label, axis.String())
+	return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">%s%s%s</svg>`,
+		opts.ClassName, opts.Width, opts.Height, opts.Height, bars.String(), label, axis.String())
 }

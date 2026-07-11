@@ -52,3 +52,17 @@ func TestBarChart_EscapesLabels(t *testing.T) {
 		t.Errorf("svg = %q, want axis label HTML-escaped", svg)
 	}
 }
+
+func TestBarChart_AppliesClassName(t *testing.T) {
+	svg := BarChart([]float64{10, 20}, nil, "", BarChartOptions{Width: 220, Height: 60, ClassName: "ha-room-chart"})
+	if !contains(svg, `class="ha-room-chart"`) {
+		t.Errorf("svg = %q, want class=\"ha-room-chart\"", svg)
+	}
+}
+
+func TestBarChart_EmptyValuesStillAppliesClassName(t *testing.T) {
+	svg := BarChart(nil, nil, "", BarChartOptions{ClassName: "ha-room-chart"})
+	if !contains(svg, `class="ha-room-chart"`) {
+		t.Errorf("svg = %q, want class=\"ha-room-chart\" even for empty values", svg)
+	}
+}

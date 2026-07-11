@@ -7,8 +7,9 @@ import (
 )
 
 type SparklineOptions struct {
-	Width  float64
-	Height float64
+	Width     float64
+	Height    float64
+	ClassName string
 }
 
 func DefaultSparklineOptions() SparklineOptions {
@@ -26,7 +27,7 @@ const sparklineAxisMargin = 12.0
 // own WEATHER widget timeline).
 func Sparkline(values []float64, axisLabels []string, opts SparklineOptions) string {
 	if len(values) == 0 {
-		return fmt.Sprintf(`<svg viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.Width, opts.Height, opts.Height)
+		return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.ClassName, opts.Width, opts.Height, opts.Height)
 	}
 
 	chartHeight := opts.Height - sparklineAxisMargin
@@ -87,11 +88,11 @@ func Sparkline(values []float64, axisLabels []string, opts SparklineOptions) str
 	}
 
 	return fmt.Sprintf(
-		`<svg viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">`+
+		`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">`+
 			`<polygon points="%s" fill="var(--color-progress-value)" fill-opacity="0.16"/>`+
 			`<polyline points="%s" fill="none" stroke="var(--color-progress-value)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>`+
 			`%s`+
 			`</svg>`,
-		opts.Width, opts.Height, opts.Height, area, line, axis.String(),
+		opts.ClassName, opts.Width, opts.Height, opts.Height, area, line, axis.String(),
 	)
 }

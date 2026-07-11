@@ -50,6 +50,20 @@ func TestSparkline_EscapesAxisLabels(t *testing.T) {
 	}
 }
 
+func TestSparkline_AppliesClassName(t *testing.T) {
+	svg := Sparkline([]float64{1, 2, 3}, nil, SparklineOptions{Width: 100, Height: 20, ClassName: "ha-room-chart"})
+	if !contains(svg, `class="ha-room-chart"`) {
+		t.Errorf("svg = %q, want class=\"ha-room-chart\"", svg)
+	}
+}
+
+func TestSparkline_EmptyValuesStillAppliesClassName(t *testing.T) {
+	svg := Sparkline(nil, nil, SparklineOptions{ClassName: "ha-room-chart"})
+	if !contains(svg, `class="ha-room-chart"`) {
+		t.Errorf("svg = %q, want class=\"ha-room-chart\" even for empty values", svg)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (func() bool {
 		for i := 0; i+len(substr) <= len(s); i++ {
