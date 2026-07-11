@@ -84,7 +84,7 @@ func TestFetchStates_ParsesEntities(t *testing.T) {
 		}
 		fmt.Fprint(w, `[
 			{"entity_id":"sensor.living_room_temp","state":"21.4","attributes":{"friendly_name":"Living Room Temperature","device_class":"temperature"}},
-			{"entity_id":"light.living_room_main","state":"on","attributes":{"friendly_name":"Living Room Main Light"}},
+			{"entity_id":"light.living_room_main","state":"on","attributes":{"friendly_name":"Living Room Main Light","icon":"mdi:track-light"}},
 			{"entity_id":"binary_sensor.front_door","state":"off","attributes":{"friendly_name":"Front Door","device_class":"door"}},
 			{"entity_id":"sensor.unnamed_thing","state":"5","attributes":{}}
 		]`)
@@ -107,10 +107,16 @@ func TestFetchStates_ParsesEntities(t *testing.T) {
 	if temp.FriendlyName != "Living Room Temperature" {
 		t.Errorf("temp.FriendlyName = %q", temp.FriendlyName)
 	}
+	if temp.Icon != "" {
+		t.Errorf("temp.Icon = %q, want empty (no icon attribute set)", temp.Icon)
+	}
 
 	light := states["light.living_room_main"]
 	if light.Domain != "light" || light.State != "on" {
 		t.Errorf("light entity = %+v", light)
+	}
+	if light.Icon != "mdi:track-light" {
+		t.Errorf("light.Icon = %q, want mdi:track-light", light.Icon)
 	}
 
 	door := states["binary_sensor.front_door"]
