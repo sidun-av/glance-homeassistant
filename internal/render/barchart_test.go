@@ -20,8 +20,8 @@ func TestBarChart_RendersOneBarPerValue(t *testing.T) {
 	if count := strings.Count(svg, "<line"); count != 4 {
 		t.Errorf("bar (<line>) count = %d, want 4", count)
 	}
-	if !contains(svg, "var(--color-primary)") {
-		t.Errorf("svg = %q, want it to reference the theme's primary color variable", svg)
+	if !contains(svg, "var(--color-progress-value)") {
+		t.Errorf("svg = %q, want it to reference the theme's progress-value color variable", svg)
 	}
 }
 

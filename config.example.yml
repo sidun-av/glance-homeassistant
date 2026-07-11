@@ -16,7 +16,7 @@ title: Home   # env: TITLE
 temperature:
   range: 24h   # env: TEMPERATURE_RANGE
   max_points: 60   # env: TEMPERATURE_MAX_POINTS
-  chart_height: 34   # env: TEMPERATURE_CHART_HEIGHT — sparkline: chart height in px. bars: bar area height (label rows added on top)
+  chart_height: 34   # env: TEMPERATURE_CHART_HEIGHT — chart area height in px; a small axis-label row is added below (both styles) and a value-label row above (bars only)
   chart_style: sparkline   # env: TEMPERATURE_CHART_STYLE — or: bars
 
 live:

@@ -113,7 +113,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 			barOpts := render.BarChartOptions{Width: 220, Height: float64(a.cfg.Temperature.ChartHeight + 27)}
 			svg = render.BarChart(avg, axisLabels, value, barOpts)
 		} else {
-			svg = render.Sparkline(avg, render.SparklineOptions{Width: 220, Height: float64(a.cfg.Temperature.ChartHeight)})
+			svg = render.Sparkline(avg, axisLabels, render.SparklineOptions{Width: 220, Height: float64(a.cfg.Temperature.ChartHeight + 12)})
 		}
 		tempViews[i] = render.TemperatureRoomView{Room: tr.Room, Value: value, SVG: svg}
 	}

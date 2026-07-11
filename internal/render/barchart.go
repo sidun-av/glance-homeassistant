@@ -68,7 +68,7 @@ func BarChart(values []float64, axisLabels []string, currentValueLabel string, o
 		opacity := 0.32 + (0.68 * float64(i) / float64(denom))
 		barWidth := step * 0.55
 		fmt.Fprintf(&bars,
-			`<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" stroke="var(--color-primary)" stroke-opacity="%.2f" stroke-width="%.2f" stroke-linecap="round"/>`,
+			`<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" stroke="var(--color-progress-value)" stroke-opacity="%.2f" stroke-width="%.2f" stroke-linecap="round"/>`,
 			x, baseline, x, y2, opacity, barWidth,
 		)
 	}

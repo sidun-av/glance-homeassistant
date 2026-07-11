@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"html"
 	"strings"
 )
 
@@ -14,12 +15,23 @@ func DefaultSparklineOptions() SparklineOptions {
 	return SparklineOptions{Width: 220, Height: 34}
 }
 
+// sparklineAxisMargin reserves room below the line/area for the x-axis time
+// labels, mirroring the label row BarChart reserves via its own margins.
+const sparklineAxisMargin = 12.0
+
 // Sparkline renders an inline SVG line+area chart auto-scaled to the
 // series' own min/max (with 20% padding), themed via Glance's own CSS
-// custom property so it matches the user's active accent color.
-func Sparkline(values []float64, opts SparklineOptions) string {
+// custom property so it matches the user's active theme, with sparse x-axis
+// time labels drawn wherever axisLabels[i] is non-empty (mirroring Glance's
+// own WEATHER widget timeline).
+func Sparkline(values []float64, axisLabels []string, opts SparklineOptions) string {
 	if len(values) == 0 {
 		return fmt.Sprintf(`<svg viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.Width, opts.Height, opts.Height)
+	}
+
+	chartHeight := opts.Height - sparklineAxisMargin
+	if chartHeight < 1 {
+		chartHeight = opts.Height
 	}
 
 	min, max := values[0], values[0]
@@ -51,17 +63,35 @@ func Sparkline(values []float64, opts SparklineOptions) string {
 	points := make([]string, n)
 	for i, v := range values {
 		x := float64(i) * stepX
-		y := opts.Height - ((v-min)/span)*opts.Height
+		y := chartHeight - ((v-min)/span)*chartHeight
 		points[i] = fmt.Sprintf("%.2f,%.2f", x, y)
 	}
 	line := strings.Join(points, " ")
-	area := fmt.Sprintf("0,%.2f %s %.2f,%.2f", opts.Height, line, opts.Width, opts.Height)
+	area := fmt.Sprintf("0,%.2f %s %.2f,%.2f", chartHeight, line, opts.Width, chartHeight)
+
+	var axis strings.Builder
+	for i, lbl := range axisLabels {
+		if lbl == "" || i >= n {
+			continue
+		}
+		x := float64(i) * stepX
+		anchor := "middle"
+		switch i {
+		case 0:
+			anchor = "start"
+		case n - 1:
+			anchor = "end"
+		}
+		fmt.Fprintf(&axis, `<text x="%.2f" y="%.2f" text-anchor="%s" font-size="9" fill="var(--color-text-subdue)">%s</text>`,
+			x, opts.Height-1, anchor, html.EscapeString(lbl))
+	}
 
 	return fmt.Sprintf(
 		`<svg viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">`+
-			`<polygon points="%s" fill="var(--color-primary)" fill-opacity="0.16"/>`+
-			`<polyline points="%s" fill="none" stroke="var(--color-primary)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>`+
+			`<polygon points="%s" fill="var(--color-progress-value)" fill-opacity="0.16"/>`+
+			`<polyline points="%s" fill="none" stroke="var(--color-progress-value)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>`+
+			`%s`+
 			`</svg>`,
-		opts.Width, opts.Height, opts.Height, area, line,
+		opts.Width, opts.Height, opts.Height, area, line, axis.String(),
 	)
 }
