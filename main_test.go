@@ -152,6 +152,32 @@ func TestLiveHandler_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestLiveHandler_ReachableAtPublicURLPrefix(t *testing.T) {
+	// Some reverse proxies (e.g. Nginx Proxy Manager's Custom Locations,
+	// configured with just a forward host/port and no trailing slash on
+	// proxy_pass) forward the request's full original path instead of
+	// stripping the location prefix. When public_url is "/ha-widget", the
+	// browser's bootstrap script requests "/ha-widget/live.json" — if the
+	// proxy doesn't strip the prefix, that's the literal path this service
+	// receives, and it must still resolve instead of 404ing (which the
+	// bootstrap script's fetch().catch() swallows silently, so lights and
+	// sensors would just never update, with no visible error).
+	ha := fakeHAServer(t)
+	defer ha.Close()
+
+	cfg := testConfig(ha.URL)
+	cfg.PublicURL = "/ha-widget"
+	mux := newMux(cfg, newApp(cfg))
+
+	req := httptest.NewRequest(http.MethodGet, "/ha-widget/live.json", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (must be reachable whether or not the reverse proxy strips the public_url prefix)", rec.Code)
+	}
+}
+
 func TestHealthzHandler(t *testing.T) {
 	cfg := testConfig("http://unused")
 	mux := newMux(cfg, newApp(cfg))

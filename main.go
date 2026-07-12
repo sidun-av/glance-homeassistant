@@ -230,6 +230,21 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	})
 	mux.HandleFunc("/widget", a.widgetHandler)
 	mux.HandleFunc("/live.json", a.liveHandler)
+
+	// A reverse proxy in front of this service (see README's "Expose this
+	// service to your browser" step) may forward a Custom Location's full
+	// original path instead of stripping the public_url prefix — that
+	// depends on details like a trailing slash on its own proxy_pass, which
+	// not every proxy UI (e.g. Nginx Proxy Manager's basic Custom Location
+	// form) makes easy to get right. Registering the same handlers under
+	// that prefix too means live updates work either way, without the
+	// user needing to fight their reverse proxy's path-stripping behavior.
+	// A full origin (e.g. a dedicated LAN port, not a path) is a distinct
+	// listener reached directly with no such prefix ever attached, so this
+	// only applies when public_url is itself a path.
+	if prefix := strings.TrimRight(cfg.PublicURL, "/"); strings.HasPrefix(prefix, "/") {
+		mux.HandleFunc(prefix+"/live.json", a.liveHandler)
+	}
 	return mux
 }
 
