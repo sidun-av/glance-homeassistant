@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/bits"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,16 +32,60 @@ func liveURL(publicURL string) string {
 	return strings.TrimRight(publicURL, "/") + "/live.json"
 }
 
-func sparseAxisLabels(timestamps []time.Time) []string {
-	labels := make([]string, len(timestamps))
-	if len(timestamps) == 0 {
-		return labels
+// axisLabelIntervals is the number of dyadic subdivisions used to pick
+// sparse timeline label candidates (see sparseAxisLabels): 8 intervals
+// across 9 evenly spaced candidate positions. Must stay a power of two for
+// axisLabelTier's bit trick to produce a clean tier assignment.
+const axisLabelIntervals = 8
+
+// axisLabelTier returns the dyadic subdivision level at which candidate k
+// (of axisLabelIntervals+1 evenly spaced candidates, k in
+// [0,axisLabelIntervals]) first appears: 0 for the two endpoints, 1 for
+// the midpoint, 2 for the quarter points, and so on. Every tier's
+// positions are a superset of all lower tiers', so revealing a higher
+// tier (see the ha-chart-axis @container rules in
+// internal/render/template.go) only adds labels — it never repositions
+// ones already shown, which matters for a smooth reveal as a room's card
+// grows wider.
+func axisLabelTier(k, total int) int {
+	if k == 0 || k == total {
+		return 0
 	}
-	last := len(timestamps) - 1
-	labels[0] = timestamps[0].Format("3pm")
-	labels[last] = timestamps[last].Format("3pm")
-	if last > 1 {
-		labels[last/2] = timestamps[last/2].Format("3pm")
+	return bits.TrailingZeros(uint(total)) - bits.TrailingZeros(uint(k))
+}
+
+// sparseAxisLabels picks a small set of evenly spaced, tiered time labels
+// for a room's temperature chart x-axis (see render.AxisLabelsRow), rather
+// than a fixed first/middle/last regardless of how much room the chart
+// actually has. It samples axisLabelIntervals+1 candidate positions across
+// the full timestamp range and keeps one label per distinct timestamp
+// index, tagged with the tier at which it should start appearing — CSS
+// reveals more of them as the room's card gets wider (see styleBlock),
+// without any of the already-shown labels moving.
+func sparseAxisLabels(timestamps []time.Time) []render.AxisLabel {
+	n := len(timestamps)
+	if n == 0 {
+		return nil
+	}
+
+	bestTier := make(map[int]int, axisLabelIntervals+1)
+	for k := 0; k <= axisLabelIntervals; k++ {
+		idx := int(math.Round(float64(k) * float64(n-1) / float64(axisLabelIntervals)))
+		tier := axisLabelTier(k, axisLabelIntervals)
+		if existing, ok := bestTier[idx]; !ok || tier < existing {
+			bestTier[idx] = tier
+		}
+	}
+
+	indices := make([]int, 0, len(bestTier))
+	for idx := range bestTier {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+
+	labels := make([]render.AxisLabel, len(indices))
+	for i, idx := range indices {
+		labels[i] = render.AxisLabel{Text: timestamps[idx].Format("3pm"), Tier: bestTier[idx]}
 	}
 	return labels
 }

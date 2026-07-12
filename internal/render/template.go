@@ -57,6 +57,7 @@ func styleBlock(cardMinHeight int) string {
 
 	.ha-rooms{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
 	.ha-room{
+	  container-type:inline-size;
 	  flex:1 1 160px;min-height:%dpx;
 	  background:var(--color-widget-background-highlight);
 	  border:1px solid var(--color-widget-content-border);
@@ -74,6 +75,10 @@ func styleBlock(cardMinHeight int) string {
 	.ha-temp-nodata{color:var(--color-text-subdue);font-size:.85em;padding:2px 0}
 	.ha-room-chart{flex:2 1 auto;width:100%%;display:block;min-height:30px}
 	.ha-chart-axis{display:flex;justify-content:space-between;flex:none;font-size:9px;letter-spacing:.02em;color:var(--color-text-base);padding:0 1px}
+	.ha-chart-axis span{display:none}
+	.ha-chart-axis span[data-tier="0"],.ha-chart-axis span[data-tier="1"]{display:inline}
+	@container (min-width:380px){.ha-chart-axis span[data-tier="2"]{display:inline}}
+	@container (min-width:520px){.ha-chart-axis span[data-tier="3"]{display:inline}}
 	.ha-room-lights{flex:1 1 auto;display:flex;flex-wrap:wrap;align-content:center;align-items:center;gap:10px}
 	.ha-room-lights svg{width:26px;height:26px;flex:none}
 	.ha-room-status{flex:none;display:flex;flex-direction:column;gap:5px}

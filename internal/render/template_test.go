@@ -113,6 +113,30 @@ func TestRenderWidget_NoOccupiedGlowAnimation(t *testing.T) {
 	}
 }
 
+func TestRenderWidget_AxisTiersRevealedByContainerWidth(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	// Tiers 0/1 (first/middle/last) show unconditionally, matching the
+	// widget's original fixed behavior on a narrow card.
+	if !contains(html, `.ha-chart-axis span{display:none}`) {
+		t.Errorf("html missing the default-hidden rule for axis label spans")
+	}
+	if !contains(html, `.ha-chart-axis span[data-tier="0"]`) || !contains(html, `[data-tier="1"]{display:inline}`) {
+		t.Errorf("html missing the always-shown tier 0/1 rule")
+	}
+	// Higher tiers only reveal via a width-based @container query on the
+	// room card, so a wider card can show a finer timeline step without
+	// any JavaScript measuring anything.
+	if !contains(html, "@container") {
+		t.Errorf("html missing an @container query gating higher-tier axis labels")
+	}
+	if !contains(html, `[data-tier="2"]{display:inline}`) || !contains(html, `[data-tier="3"]{display:inline}`) {
+		t.Errorf("html missing tier 2/3 reveal rules")
+	}
+	if !contains(html, "container-type:inline-size") {
+		t.Errorf("html missing container-type:inline-size on the room card, needed for @container to query its width")
+	}
+}
+
 func TestRenderWidget_SizeClassApplied(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
 	// The full class attribute value, not a bare "ha-size-md" substring —

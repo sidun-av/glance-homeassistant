@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sidun-av/glance-homeassistant/internal/hass"
+	"github.com/sidun-av/glance-homeassistant/internal/render"
 )
 
 func fakeHAServer(t *testing.T) *httptest.Server {
@@ -207,7 +208,7 @@ func TestLiveURL(t *testing.T) {
 	}
 }
 
-func TestSparseAxisLabels(t *testing.T) {
+func TestSparseAxisLabels_FiveTimestampsGivesThreeTierZeroOneLabels(t *testing.T) {
 	base := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	timestamps := []time.Time{
 		base,
@@ -217,22 +218,59 @@ func TestSparseAxisLabels(t *testing.T) {
 		base.Add(24 * time.Hour),
 	}
 	labels := sparseAxisLabels(timestamps)
-	if len(labels) != 5 {
-		t.Fatalf("len(labels) = %d, want 5", len(labels))
+
+	// The default (narrow-card) view only shows tier <= 1 — this must
+	// still be exactly first/middle/last, matching the widget's original
+	// fixed behavior, regardless of how many higher-tier candidates exist.
+	var shownByDefault []render.AxisLabel
+	for _, l := range labels {
+		if l.Tier <= 1 {
+			shownByDefault = append(shownByDefault, l)
+		}
 	}
-	if labels[0] == "" || labels[2] == "" || labels[4] == "" {
-		t.Errorf("labels = %v, want first/middle/last populated", labels)
-	}
-	if labels[1] != "" || labels[3] != "" {
-		t.Errorf("labels = %v, want the rest empty", labels)
+	if len(shownByDefault) != 3 {
+		t.Fatalf("tier<=1 labels = %+v, want 3 (first/middle/last)", shownByDefault)
 	}
 	// Hour-only, no minutes — matches Glance's own WEATHER widget style
 	// ("6am 2pm 10pm"), not a bare "HH:MM" clock.
-	if labels[0] != "12am" {
-		t.Errorf("labels[0] = %q, want %q (hour-only, no minutes)", labels[0], "12am")
+	if shownByDefault[0].Text != "12am" || shownByDefault[0].Tier != 0 {
+		t.Errorf("first default label = %+v, want {12am, tier 0}", shownByDefault[0])
 	}
-	if labels[2] != "12pm" {
-		t.Errorf("labels[2] = %q, want %q (hour-only, no minutes)", labels[2], "12pm")
+	if shownByDefault[1].Text != "12pm" || shownByDefault[1].Tier != 1 {
+		t.Errorf("middle default label = %+v, want {12pm, tier 1}", shownByDefault[1])
+	}
+	// 24h later == the same wall-clock hour — expected, not a bug (see
+	// AxisLabelsRow's doc comment history).
+	if shownByDefault[2].Text != "12am" || shownByDefault[2].Tier != 0 {
+		t.Errorf("last default label = %+v, want {12am, tier 0}", shownByDefault[2])
+	}
+}
+
+func TestSparseAxisLabels_MorePointsRevealHigherTiers(t *testing.T) {
+	base := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	var timestamps []time.Time
+	for i := 0; i < 61; i++ {
+		timestamps = append(timestamps, base.Add(time.Duration(i)*24*time.Minute))
+	}
+	labels := sparseAxisLabels(timestamps)
+
+	maxTier := 0
+	for _, l := range labels {
+		if l.Tier > maxTier {
+			maxTier = l.Tier
+		}
+	}
+	if maxTier != 3 {
+		t.Errorf("max tier = %d, want 3 (a wide enough range should offer the finest dyadic tier)", maxTier)
+	}
+	if len(labels) != axisLabelIntervals+1 {
+		t.Errorf("len(labels) = %d, want %d (61 evenly spaced timestamps land on all 9 dyadic candidates)", len(labels), axisLabelIntervals+1)
+	}
+}
+
+func TestSparseAxisLabels_EmptyTimestampsReturnsNil(t *testing.T) {
+	if labels := sparseAxisLabels(nil); labels != nil {
+		t.Errorf("labels = %+v, want nil", labels)
 	}
 }
 
