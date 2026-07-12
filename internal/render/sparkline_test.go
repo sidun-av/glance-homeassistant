@@ -22,6 +22,21 @@ func TestSparkline_RendersOnePointPerValue(t *testing.T) {
 	}
 }
 
+func TestSparkline_PolylineHasNonScalingStroke(t *testing.T) {
+	// This SVG uses preserveAspectRatio="none" (see the doc comment on
+	// Sparkline) so it can stretch to fill whatever box its flex-grown
+	// room card gives it — but that scales X and Y by different factors,
+	// which makes a plain stroke-width look uneven along the polyline:
+	// each segment's apparent thickness after that non-uniform scaling
+	// depends on its slope, most noticeable with small, jagged
+	// temperature steps. vector-effect="non-scaling-stroke" draws the
+	// stroke in device pixels instead, independent of that scaling.
+	svg := Sparkline([]float64{1, 2, 3, 2, 1}, SparklineOptions{Width: 100, Height: 20})
+	if !contains(svg, `vector-effect="non-scaling-stroke"`) {
+		t.Errorf("svg = %q, want the polyline to have vector-effect=\"non-scaling-stroke\"", svg)
+	}
+}
+
 func TestSparkline_FlatSeriesDoesNotDivideByZero(t *testing.T) {
 	svg := Sparkline([]float64{5, 5, 5, 5}, SparklineOptions{Width: 100, Height: 20})
 	if contains(svg, "NaN") {

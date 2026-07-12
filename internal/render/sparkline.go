@@ -24,7 +24,12 @@ func DefaultSparklineOptions() SparklineOptions {
 // along with the geometry under that setting, visibly stretching glyphs
 // whenever the container's aspect ratio doesn't match the chart's own
 // internal coordinate space (which is always true in a room card of
-// varying width). Plain HTML text has no such distortion.
+// varying width). Plain HTML text has no such distortion. That same
+// non-uniform scaling also makes the polyline's stroke width look uneven
+// (most visibly with small, jagged temperature steps), since each
+// segment's apparent thickness after scaling depends on its slope — fixed
+// by vector-effect="non-scaling-stroke", which draws the stroke in device
+// pixels rather than the scaled coordinate space.
 func Sparkline(values []float64, opts SparklineOptions) string {
 	if len(values) == 0 {
 		return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.ClassName, opts.Width, opts.Height, opts.Height)
@@ -68,7 +73,7 @@ func Sparkline(values []float64, opts SparklineOptions) string {
 	return fmt.Sprintf(
 		`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">`+
 			`<polygon points="%s" fill="var(--color-progress-value)" fill-opacity="0.16"/>`+
-			`<polyline points="%s" fill="none" stroke="var(--color-progress-value)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>`+
+			`<polyline points="%s" fill="none" stroke="var(--color-progress-value)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`+
 			`</svg>`,
 		opts.ClassName, opts.Width, opts.Height, opts.Height, area, line,
 	)
