@@ -62,16 +62,11 @@ func styleBlock(cardMinHeight int) string {
 	  border:1px solid var(--color-widget-content-border);
 	  border-radius:8px;padding:12px 14px 11px;
 	  display:flex;flex-direction:column;gap:9px;
-	  transition:background .2s,border-color .2s,box-shadow .2s;
+	  transition:background .2s,border-color .2s;
 	}
 	.ha-room.ha-size-md{flex:2 1 320px;min-height:%dpx}
 	.ha-room.ha-size-lg{flex:3 1 340px;min-height:%dpx}
 	.ha-room[data-lit="true"]{background:rgba(240,196,121,.14);border-color:rgba(240,196,121,.35)}
-	@keyframes ha-occ-glow{
-	  0%%,100%%{box-shadow:0 0 0 1.5px var(--color-primary),0 0 10px -2px color-mix(in srgb,var(--color-primary) 45%%,transparent)}
-	  50%%{box-shadow:0 0 0 1.5px var(--color-primary),0 0 20px 0 color-mix(in srgb,var(--color-primary) 80%%,transparent)}
-	}
-	.ha-room[data-occupied="true"]{animation:ha-occ-glow 2.6s ease-in-out infinite}
 
 	.ha-room-head{flex:none;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 	.ha-room-name{font-size:13.5px;font-weight:600;color:var(--color-text-highlight)}

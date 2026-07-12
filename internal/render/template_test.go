@@ -100,6 +100,19 @@ func TestRenderWidget_RoomCardCarriesLitAndOccupiedState(t *testing.T) {
 	}
 }
 
+func TestRenderWidget_NoOccupiedGlowAnimation(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	if contains(html, "ha-occ-glow") || contains(html, `[data-occupied="true"]{animation`) {
+		t.Errorf("html = %q, want no pulsing glow animation tied to data-occupied on the room card", html)
+	}
+	// The lit-state background/border tint is a different, non-animated
+	// visual cue (see .ha-room[data-lit="true"] in styleBlock) and must
+	// stay — only the occupied glow is being removed.
+	if !contains(html, `[data-lit="true"]{background`) {
+		t.Errorf("html missing the lit-state room background/border tint")
+	}
+}
+
 func TestRenderWidget_SizeClassApplied(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
 	// The full class attribute value, not a bare "ha-size-md" substring —
