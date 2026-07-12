@@ -36,10 +36,10 @@ func sparseAxisLabels(timestamps []time.Time) []string {
 		return labels
 	}
 	last := len(timestamps) - 1
-	labels[0] = timestamps[0].Format("15:04")
-	labels[last] = timestamps[last].Format("15:04")
+	labels[0] = timestamps[0].Format("3pm")
+	labels[last] = timestamps[last].Format("3pm")
 	if last > 1 {
-		labels[last/2] = timestamps[last/2].Format("15:04")
+		labels[last/2] = timestamps[last/2].Format("3pm")
 	}
 	return labels
 }

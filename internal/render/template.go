@@ -97,20 +97,9 @@ func styleBlock(cardMinHeight int) string {
 	.ha-badge svg{width:14px;height:14px;flex:none}
 	.ha-badge[data-open="true"]{color:var(--color-negative)}
 
-	.ha-light[data-on="true"] .bulb-glass{stroke:#f0c479;fill:rgba(240,196,121,.16)}
-	.ha-light[data-on="false"] .bulb-glass{stroke:var(--color-text-subdue);fill:none}
-	.ha-light[data-on="true"] .bulb-base{stroke:#f0c479}
-	.ha-light[data-on="false"] .bulb-base{stroke:var(--color-text-subdue)}
-	.ha-light[data-on="true"] .tl-head{stroke:#f0c479;fill:rgba(240,196,121,.16)}
-	.ha-light[data-on="true"] .tl-rail{stroke:#f0c479}
-	.ha-light[data-on="true"] .tl-ray{stroke:#f0c479;opacity:1}
-	.ha-light[data-on="false"] .tl-head{stroke:var(--color-text-subdue);fill:none}
-	.ha-light[data-on="false"] .tl-rail{stroke:var(--color-text-subdue)}
-	.ha-light[data-on="false"] .tl-ray{opacity:0}
-	.ha-light[data-on="true"] .ls-body{stroke:#f0c479;fill:rgba(240,196,121,.16)}
-	.ha-light[data-on="true"] .ls-led{fill:#f0c479}
-	.ha-light[data-on="false"] .ls-body{stroke:var(--color-text-subdue);fill:none}
-	.ha-light[data-on="false"] .ls-led{fill:var(--color-text-subdue)}
+	.ha-light path{transition:fill .2s,filter .2s}
+	.ha-light[data-on="true"] path{fill:#f0c479;filter:drop-shadow(0 0 4px rgba(240,196,121,.65))}
+	.ha-light[data-on="false"] path{fill:var(--color-text-subdue)}
 
 	.ha-badge[data-open="true"] .ha-door-leaf{stroke:var(--color-negative);transform:rotate(-38deg);transform-origin:2px 12.5px}
 	.ha-badge[data-open="true"] .ha-door-frame{stroke:var(--color-negative)}

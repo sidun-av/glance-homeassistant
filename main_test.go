@@ -197,6 +197,14 @@ func TestSparseAxisLabels(t *testing.T) {
 	if labels[1] != "" || labels[3] != "" {
 		t.Errorf("labels = %v, want the rest empty", labels)
 	}
+	// Hour-only, no minutes — matches Glance's own WEATHER widget style
+	// ("6am 2pm 10pm"), not a bare "HH:MM" clock.
+	if labels[0] != "12am" {
+		t.Errorf("labels[0] = %q, want %q (hour-only, no minutes)", labels[0], "12am")
+	}
+	if labels[2] != "12pm" {
+		t.Errorf("labels[2] = %q, want %q (hour-only, no minutes)", labels[2], "12pm")
+	}
 }
 
 func TestSizeClassForWeight(t *testing.T) {
