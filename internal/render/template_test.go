@@ -11,6 +11,7 @@ func sampleRoomCard() RoomCardView {
 		HasTemperature: true,
 		TempValue:      "21.4°",
 		ChartSVG:       "<svg>lr</svg>",
+		AxisRowHTML:    `<div class="ha-chart-axis"><span>8am</span><span>7pm</span></div>`,
 		Lights: []LightView{
 			{EntityID: "light.lr_main", IconSVG: LightIcon("mdi:track-light"), On: true},
 		},
@@ -36,6 +37,9 @@ func TestRenderWidget_RoomCardIncludesTemperature(t *testing.T) {
 	}
 	if !contains(html, "<svg>lr</svg>") {
 		t.Errorf("html missing rendered chart SVG")
+	}
+	if !contains(html, `<div class="ha-chart-axis">`) {
+		t.Errorf("html missing the axis labels row")
 	}
 }
 

@@ -20,9 +20,14 @@ func DefaultBarChartOptions() BarChartOptions {
 // built-in WEATHER widget: one rounded-cap bar per value, auto min/max
 // scaled (with a minimum bar height floor so the lowest point stays
 // visible), opacity ramping from dim (oldest, index 0) to full brightness
-// (most recent, last index), a value label above the most recent bar, and
-// sparse x-axis labels wherever axisLabels[i] is non-empty.
-func BarChart(values []float64, axisLabels []string, currentValueLabel string, opts BarChartOptions) string {
+// (most recent, last index), and a value label above the most recent bar.
+// Axis labels are rendered separately as plain HTML (see AxisLabelsRow),
+// not SVG text — see Sparkline's doc comment for why. currentValueLabel
+// stays SVG text since it's tied to a specific bar's x-position rather
+// than edge-anchored, though it's subject to the same non-uniform-scaling
+// distortion in principle; not fixed here since bars isn't the active
+// chart_style and this hasn't been observed as a problem in practice.
+func BarChart(values []float64, currentValueLabel string, opts BarChartOptions) string {
 	if len(values) == 0 {
 		return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.ClassName, opts.Width, opts.Height, opts.Height)
 	}
@@ -81,16 +86,6 @@ func BarChart(values []float64, axisLabels []string, currentValueLabel string, o
 			lastX, topMargin-4, html.EscapeString(currentValueLabel))
 	}
 
-	var axis strings.Builder
-	for i, lbl := range axisLabels {
-		if lbl == "" || i >= n {
-			continue
-		}
-		x := step*float64(i) + step/2
-		fmt.Fprintf(&axis, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="9" fill="var(--color-text-subdue)">%s</text>`,
-			x, opts.Height-2, html.EscapeString(lbl))
-	}
-
-	return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">%s%s%s</svg>`,
-		opts.ClassName, opts.Width, opts.Height, opts.Height, bars.String(), label, axis.String())
+	return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">%s%s</svg>`,
+		opts.ClassName, opts.Width, opts.Height, opts.Height, bars.String(), label)
 }

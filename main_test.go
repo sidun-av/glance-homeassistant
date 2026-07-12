@@ -79,6 +79,9 @@ func TestWidgetHandler_EndToEnd(t *testing.T) {
 	if !strings.Contains(body, `class="track-light"`) {
 		t.Errorf("body missing the light's real HA icon glyph")
 	}
+	if !strings.Contains(body, `<div class="ha-chart-axis">`) {
+		t.Errorf("body missing the temperature chart's axis labels row")
+	}
 	if !strings.Contains(body, "Front Door") {
 		t.Errorf("body missing Front Door contact badge")
 	}

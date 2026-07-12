@@ -27,6 +27,7 @@ type RoomCardView struct {
 	TempNoData     bool
 	TempValue      string
 	ChartSVG       string
+	AxisRowHTML    string // "" if no chart data (see AxisLabelsRow)
 	Lights         []LightView
 	Occupancy      []SensorBadgeView
 	Contacts       []SensorBadgeView
@@ -77,6 +78,7 @@ func styleBlock(cardMinHeight int) string {
 	.ha-room-temp{font-size:13px;color:var(--color-text-highlight);font-variant-numeric:tabular-nums;white-space:nowrap}
 	.ha-temp-nodata{color:var(--color-text-subdue);font-size:.85em;padding:2px 0}
 	.ha-room-chart{flex:2 1 auto;width:100%%;display:block;min-height:30px}
+	.ha-chart-axis{display:flex;justify-content:space-between;flex:none;font-size:9px;letter-spacing:.02em;color:var(--color-text-base);padding:0 1px}
 	.ha-room-lights{flex:1 1 auto;display:flex;flex-wrap:wrap;align-content:center;align-items:center;gap:10px}
 	.ha-room-lights svg{width:26px;height:26px;flex:none}
 	.ha-room-status{flex:none;display:flex;flex-direction:column;gap:5px}
@@ -163,7 +165,7 @@ func renderRoomCard(r RoomCardView) string {
 		if r.TempNoData {
 			b.WriteString(`</div><div class="ha-temp-nodata">no data</div>`)
 		} else {
-			fmt.Fprintf(&b, `<span class="ha-room-temp">%s</span></div>%s`, html.EscapeString(r.TempValue), r.ChartSVG)
+			fmt.Fprintf(&b, `<span class="ha-room-temp">%s</span></div>%s%s`, html.EscapeString(r.TempValue), r.ChartSVG, r.AxisRowHTML)
 		}
 	} else {
 		fmt.Fprintf(&b, `<div class="ha-room-head"><span class="ha-room-name">%s</span></div>`, html.EscapeString(r.Room))

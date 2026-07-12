@@ -171,10 +171,11 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 				view.TempValue = fmt.Sprintf("%.1f°", avg[len(avg)-1])
 				if a.cfg.Temperature.ChartStyle == "bars" {
 					barOpts := render.BarChartOptions{Width: 220, Height: barChartNominalHeight, ClassName: "ha-room-chart"}
-					view.ChartSVG = render.BarChart(avg, axisLabels, view.TempValue, barOpts)
+					view.ChartSVG = render.BarChart(avg, view.TempValue, barOpts)
 				} else {
-					view.ChartSVG = render.Sparkline(avg, axisLabels, render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
+					view.ChartSVG = render.Sparkline(avg, render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
 				}
+				view.AxisRowHTML = render.AxisLabelsRow(axisLabels)
 			}
 		}
 
