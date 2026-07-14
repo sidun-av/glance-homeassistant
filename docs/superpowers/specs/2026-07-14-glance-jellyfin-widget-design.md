@@ -37,7 +37,7 @@ Headers: X-Emby-Token: {JELLYFIN_TOKEN}
 
 `GroupItems=false` is required for the "one combined grid" decision (clarifying question 2) — Jellyfin's default groups results per-library/view, which would return the latest items *per library* rather than one flat, date-sorted list mixing movies and series together.
 
-Response is a flat JSON array of items (not the `{Items: [...], TotalRecordCount}` envelope some other Jellyfin endpoints use); each item has at least `Id`, `Name`, `Type`, and `ImageTags.Primary` (present when the item has a poster — some malformed library entries may lack one, handled by skipping the card rather than rendering a broken image).
+Response is a flat JSON array of items (not the `{Items: [...], TotalRecordCount}` envelope some other Jellyfin endpoints use); each item has at least `Id`, `Name`, `Type`, and `ImageTags.Primary` (present when the item has a poster — some malformed library entries may lack one, handled by skipping the card rather than rendering a broken image). `ImageTags` is part of Jellyfin's base item DTO and doesn't need to be requested via `Fields`; the exact `Fields` value (if any turns out to be needed at all) gets verified against a real Jellyfin server during implementation rather than assumed here.
 
 `internal/jellyfin` (mirroring `internal/hass` in the sibling project) owns this HTTP call and the response shape, exposing a single `FetchLatest(ctx, limit int) ([]Item, error)` to `main.go`.
 
@@ -66,6 +66,8 @@ This service exposes `GET /image/{itemId}`, which:
 4. Grid uses CSS Grid with `grid-template-columns: repeat(auto-fill, minmax(100px, 1fr))` (poster-card sizing, portrait `aspect-ratio: 2/3` on each `<img>`) so it reflows to however wide Glance's column/group layout gives it, the same "let flexible CSS handle layout, not hand-tuned breakpoints" approach already used throughout `glance-homeassistant`.
 
 No `data-*` attributes or bootstrap script are needed — there is no live state to patch in after the initial render.
+
+A `GET /healthz` endpoint (plain `200 ok`) is included for parity with `glance-homeassistant`, independent of Jellyfin's own reachability.
 
 ---
 
@@ -102,6 +104,22 @@ TDD throughout, mirroring `glance-homeassistant`'s existing structure:
 - `internal/render`: unit tests for the grid-rendering function — correct card count, items without a poster skipped, HTML-escaping of titles, correct `href`/`src` construction.
 - `main.go`: end-to-end handler test with a fake Jellyfin server, covering the unavailable-Jellyfin path and the successful-render path (mirrors `TestWidgetHandler_EndToEnd` / `TestWidgetHandler_HomeAssistantUnavailable` in `glance-homeassistant`).
 - Image proxy handler: unit test verifying the token header is sent upstream, the response is streamed through with the right `Content-Type`/`Cache-Control`, and a Jellyfin-side error becomes a clean 404.
+
+---
+
+## 7. Repo scaffolding (deployment parity with `glance-homeassistant`)
+
+For this to be deployable the same way (Komodo pulling a compose file from git, image on `ghcr.io`), the new repo needs the same supporting files, adapted 1:1 from `glance-homeassistant`:
+
+- **`Dockerfile`** — identical multi-stage shape: `golang:1.23-alpine` build stage, `gcr.io/distroless/static-debian12:nonroot` runtime stage, `EXPOSE 8080`.
+- **`.github/workflows/ci.yml`** — `test` job (`go test ./...`, `gofmt -l .`, `go vet ./...`) then a `docker` job gated on push to `main`, building and pushing `ghcr.io/sidun-av/glance-jellyfin:latest`.
+- **`config.example.yml`** — hand-editable config file with every field and example values/comments.
+- **`config.docker-default.yml`** — the near-empty file baked into the image as `/config.yml`, so the image works from env vars alone with nothing mounted (same role as `glance-homeassistant`'s).
+- **`docker-compose.example.yml`** — one `glance-jellyfin` service, env vars for every config field, comment pointing at Komodo's Environment tab as the intended way to set them.
+- **`README.md`** — same structure as `glance-homeassistant`'s: how it works, setup steps (create a Jellyfin API key, find your user ID, configure, run alongside Glance, add the extension widget block), env var reference table, error handling, out-of-scope, development.
+- **`LICENSE`** — copy of the existing one.
+- **`.gitignore`** / **`.dockerignore`** — copied as-is.
+- **`go.mod`** — new module path `github.com/sidun-av/glance-jellyfin`, same Go version.
 
 ---
 
