@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"html"
+	"math"
 	"strings"
 )
 
@@ -21,46 +22,65 @@ func DefaultBarChartOptions() BarChartOptions {
 // required, IsDaytime and CurrentLabel are both optional (nil/"" disables
 // the daytime band / current-value label respectively).
 type BarChartData struct {
+	// Values may contain NaN for timestamps with no data yet (e.g. a
+	// fixed-calendar-day window's hours later than "now") — those indices
+	// render no bar at all (a gap), are excluded from min/max, and are
+	// never treated as CurrentIndex.
 	Values []float64
 	// IsDaytime is parallel to Values (same length expected, but a shorter
 	// or nil slice is treated as "no daytime data" rather than an error —
 	// this chart must still render correctly for callers that don't have
 	// sun data, e.g. if the sun.sun history fetch failed).
 	IsDaytime []bool
-	// CurrentLabel is rendered above the most recent (last) bar. Also
-	// used to decide whether the min/max labels should be suppressed for
-	// that same bar (see BarChart's doc comment).
+	// CurrentLabel is rendered above the CurrentIndex bar. Also used to
+	// decide whether the min/max labels should be suppressed for that same
+	// bar (see BarChart's doc comment). Ignored (no label rendered) if
+	// CurrentIndex is out of range or CurrentLabel is "".
 	CurrentLabel string
+	// CurrentIndex is which element of Values is "now" — the bar that gets
+	// the brightness/width emphasis and CurrentLabel. Unlike the previous
+	// version of this chart, this is NOT always len(Values)-1: a
+	// fixed-calendar-day window's current reading sits wherever "now"
+	// falls within the day, with later (not-yet-happened) hours as NaN
+	// gaps after it. A negative or out-of-range CurrentIndex disables the
+	// current-bar emphasis entirely (falls back to every bar rendering at
+	// the same "normal" tier).
+	CurrentIndex int
 }
 
 // BarChart renders a themed vertical bar chart mirroring Glance's own
-// built-in WEATHER widget: one rounded-cap bar per value, auto min/max
-// scaled (with a minimum bar height floor so the lowest point stays
-// visible), opacity ramping from dim (oldest, index 0) to full brightness
-// (most recent, last index), the most recent bar rendered wider than the
-// rest (matching Weather's .weather-column-current width bump), a value
-// label above the most recent bar, and — new — a rounded daytime band
-// drawn behind the bars for each contiguous run of IsDaytime, plus small
-// secondary labels marking the minimum and maximum values in the series
-// (skipped for whichever one, if either, coincides with the current bar,
-// to avoid rendering the same value twice on one bar).
+// built-in WEATHER widget: rounded-top/flat-bottom bars (clipped, not
+// stroke-linecap="round" — a round cap on both ends made short bars look
+// like dots instead of bars), a two-tier brightness scheme (every bar at
+// one flat "normal" shade except CurrentIndex, which is both wider and
+// fully bright — matching Weather's .weather-column-current treatment,
+// not a gradual opacity ramp), a rounded daytime band drawn behind the
+// bars for each contiguous run of IsDaytime, and small value labels for
+// the current/min/max points.
 //
 // Axis labels are rendered separately as plain HTML (see AxisLabelsRow),
-// not SVG text — see Sparkline's doc comment for why. The value labels
-// here stay SVG text since each is tied to a specific bar's x-position
-// rather than edge-anchored, though they're subject to the same
-// non-uniform-scaling distortion in principle; not fixed here since bars
-// wasn't the previous default chart_style and this hasn't been observed
-// as a problem in practice.
+// not SVG text, because this chart's SVG uses preserveAspectRatio="none"
+// to fill whatever box its flex-grown container gives it — that scales X
+// and Y non-uniformly, and SVG <text> glyphs visibly distort under that
+// scaling the same way a photo looks distorted when stretched to the
+// wrong aspect ratio, unlike bars/rects which just read as "a stretched
+// chart." The current/min/max value labels used to be SVG <text> too
+// (this was observed live once "bars" became the default chart_style:
+// stretched, sometimes-clipped digits) — they're now plain HTML <span>s,
+// absolutely positioned by percentage (not pixels, since the card's real
+// rendered width isn't known server-side) over a position:relative
+// wrapper around the SVG, exactly mirroring AxisLabelsRow's reasoning.
+// BarChart therefore returns a wrapper <div>, not a bare <svg>, unlike
+// Sparkline.
 func BarChart(data BarChartData, opts BarChartOptions) string {
 	values := data.Values
 	if len(values) == 0 {
-		return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg>`, opts.ClassName, opts.Width, opts.Height, opts.Height)
+		return fmt.Sprintf(`<div class="ha-bar-wrap"><svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none"></svg></div>`, opts.ClassName, opts.Width, opts.Height, opts.Height)
 	}
 
 	const topMargin = 14.0
 	const bottomMargin = 13.0
-	const minBarHeight = 3.0
+	const minBarHeight = 4.0
 
 	barAreaHeight := opts.Height - topMargin - bottomMargin
 	if barAreaHeight < minBarHeight {
@@ -68,31 +88,32 @@ func BarChart(data BarChartData, opts BarChartOptions) string {
 	}
 	baseline := opts.Height - bottomMargin
 
-	min, max := values[0], values[0]
-	minIdx, maxIdx := 0, 0
+	min, max := math.NaN(), math.NaN()
+	minIdx, maxIdx := -1, -1
 	for i, v := range values {
-		if v < min {
+		if math.IsNaN(v) {
+			continue
+		}
+		if math.IsNaN(min) || v < min {
 			min = v
 			minIdx = i
 		}
-		if v > max {
+		if math.IsNaN(max) || v > max {
 			max = v
 			maxIdx = i
 		}
 	}
+	haveData := minIdx != -1
 	span := max - min
-	flatSeries := span < 1e-9
+	flatSeries := !haveData || span < 1e-9
 	if flatSeries {
 		span = 1
 	}
 
 	n := len(values)
-	currentIdx := n - 1
+	currentIdx := data.CurrentIndex
+	hasCurrent := currentIdx >= 0 && currentIdx < n && !math.IsNaN(values[currentIdx]) && data.CurrentLabel != ""
 	step := opts.Width / float64(n)
-	denom := n - 1
-	if denom < 1 {
-		denom = 1
-	}
 
 	isDaytimeAt := func(i int) bool {
 		if i < len(data.IsDaytime) {
@@ -124,37 +145,48 @@ func BarChart(data BarChartData, opts BarChartOptions) string {
 		}
 	}
 
-	// labelSafeMargin keeps a text-anchor="middle" value label's glyphs
-	// from rendering outside the viewBox when its bar sits near either
-	// edge — with enough bars (e.g. the default 60-point window) a
-	// label's own x position lands close enough to 0 or Width that an
-	// unclamped position visibly clips the text (observed live: "23.8°"
-	// rendered as a clipped "23." at a card's right edge). Picked to
-	// comfortably fit a short "-12.3°"-shaped label at this chart's
-	// label font sizes (7-9px) without needing real text-metrics.
-	const labelSafeMargin = 14.0
-	clampLabelX := func(x float64) float64 {
-		if x < labelSafeMargin {
-			return labelSafeMargin
-		}
-		if x > opts.Width-labelSafeMargin {
-			return opts.Width - labelSafeMargin
-		}
-		return x
-	}
-
 	normalBarWidth := step * 0.55
 	currentBarWidth := normalBarWidth * (10.0 / 6.0)
 	if currentBarWidth > step {
 		currentBarWidth = step
 	}
+	// barRadius scales with bar width rather than a fixed pixel value, so
+	// a bar's rounded top stays proportionate whether it's a normal or
+	// current-width bar — capped at a third of the width so it can never
+	// exceed what SVG rx auto-clamps to (half-width, which would round
+	// into a full pill again, the exact shape this rect-based approach
+	// exists to avoid for short bars).
+	barRadius := func(width float64) float64 {
+		r := width * 0.4
+		if r > width/2 {
+			r = width / 2
+		}
+		return r
+	}
+
+	// A single shared clipPath, used by every bar's <rect>, cuts off
+	// whatever a bar's rounded corners would otherwise draw below
+	// baseline — every bar in this chart shares the same baseline (fixed
+	// per BarChartOptions.Height), so one shared clip region is exactly
+	// as correct as a per-bar one would be, without needing a
+	// request-scoped unique ID for multiple room cards' charts coexisting
+	// in one dashboard page.
+	const clipID = "ha-bar-baseline-clip"
+	fmt.Fprintf(&daytimeRects, `<defs><clipPath id="%s"><rect x="0" y="0" width="%g" height="%.2f"/></clipPath></defs>`, clipID, opts.Width, baseline)
 
 	var bars strings.Builder
 	// barTopY[i] is the y-coordinate of bar i's peak, kept for label
 	// placement below — computed once here rather than recomputed per
-	// label so the two passes can't drift out of sync.
+	// label so the two passes can't drift out of sync. NaN for indices
+	// with no bar drawn.
 	barTopY := make([]float64, n)
+	for i := range barTopY {
+		barTopY[i] = math.NaN()
+	}
 	for i, v := range values {
+		if math.IsNaN(v) {
+			continue // no data yet for this timestamp (e.g. later today) — leave a gap, not a zero-height bar
+		}
 		x := step*float64(i) + step/2
 		normalized := (v - min) / span * barAreaHeight
 		if normalized < minBarHeight {
@@ -162,36 +194,47 @@ func BarChart(data BarChartData, opts BarChartOptions) string {
 		}
 		y2 := baseline - normalized
 		barTopY[i] = y2
-		opacity := 0.32 + (0.68 * float64(i) / float64(denom))
+
 		barWidth := normalBarWidth
-		if i == currentIdx {
+		opacity := "0.55"
+		if hasCurrent && i == currentIdx {
 			barWidth = currentBarWidth
+			opacity = "1"
 		}
+		radius := barRadius(barWidth)
+		// Drawn taller than the visible bar (extending barRadius past
+		// baseline) so its bottom-corner rounding falls entirely below
+		// the clip boundary, leaving a flat bottom at baseline — only
+		// the top corners' rounding survives the clip.
 		fmt.Fprintf(&bars,
-			`<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" stroke="var(--color-progress-value)" stroke-opacity="%.2f" stroke-width="%.2f" stroke-linecap="round"/>`,
-			x, baseline, x, y2, opacity, barWidth,
+			`<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" rx="%.2f" ry="%.2f" fill="var(--color-progress-value)" fill-opacity="%s" clip-path="url(#%s)"/>`,
+			x-barWidth/2, y2, barWidth, (baseline-y2)+radius, radius, radius, opacity, clipID,
 		)
 	}
 
 	var labels strings.Builder
-	if data.CurrentLabel != "" {
-		x := clampLabelX(step*float64(currentIdx) + step/2)
-		fmt.Fprintf(&labels, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="9" fill="var(--color-text-highlight)">%s</text>`,
-			x, topMargin-4, html.EscapeString(data.CurrentLabel))
+	labelPct := func(x, y float64) (float64, float64) {
+		return x / opts.Width * 100, y / opts.Height * 100
+	}
+	if hasCurrent {
+		lx, ly := labelPct(step*float64(currentIdx)+step/2, topMargin-4)
+		fmt.Fprintf(&labels, `<span class="ha-bar-label ha-bar-label-current" style="left:%.2f%%;top:%.2f%%">%s</span>`,
+			lx, ly, html.EscapeString(data.CurrentLabel))
 	}
 	if !flatSeries {
-		if minIdx != currentIdx {
-			x := clampLabelX(step*float64(minIdx) + step/2)
-			fmt.Fprintf(&labels, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="7" fill="var(--color-text-subdue)">%s</text>`,
-				x, barTopY[minIdx]-3, html.EscapeString(fmt.Sprintf("%.1f°", min)))
+		if minIdx != -1 && minIdx != currentIdx {
+			lx, ly := labelPct(step*float64(minIdx)+step/2, barTopY[minIdx]-3)
+			fmt.Fprintf(&labels, `<span class="ha-bar-label ha-bar-label-secondary" style="left:%.2f%%;top:%.2f%%">%s</span>`,
+				lx, ly, html.EscapeString(fmt.Sprintf("%.1f°", min)))
 		}
-		if maxIdx != currentIdx {
-			x := clampLabelX(step*float64(maxIdx) + step/2)
-			fmt.Fprintf(&labels, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="7" fill="var(--color-text-subdue)">%s</text>`,
-				x, barTopY[maxIdx]-3, html.EscapeString(fmt.Sprintf("%.1f°", max)))
+		if maxIdx != -1 && maxIdx != currentIdx {
+			lx, ly := labelPct(step*float64(maxIdx)+step/2, barTopY[maxIdx]-3)
+			fmt.Fprintf(&labels, `<span class="ha-bar-label ha-bar-label-secondary" style="left:%.2f%%;top:%.2f%%">%s</span>`,
+				lx, ly, html.EscapeString(fmt.Sprintf("%.1f°", max)))
 		}
 	}
 
-	return fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">%s%s%s</svg>`,
-		opts.ClassName, opts.Width, opts.Height, opts.Height, daytimeRects.String(), bars.String(), labels.String())
+	svg := fmt.Sprintf(`<svg class="%s" viewBox="0 0 %g %g" height="%g" style="width:100%%;display:block" preserveAspectRatio="none">%s%s</svg>`,
+		opts.ClassName, opts.Width, opts.Height, opts.Height, daytimeRects.String(), bars.String())
+	return fmt.Sprintf(`<div class="ha-bar-wrap">%s%s</div>`, svg, labels.String())
 }

@@ -74,6 +74,11 @@ func styleBlock(cardMinHeight int) string {
 	.ha-room-temp{font-size:13px;color:var(--color-text-highlight);font-variant-numeric:tabular-nums;white-space:nowrap}
 	.ha-temp-nodata{color:var(--color-text-subdue);font-size:.85em;padding:2px 0}
 	.ha-room-chart{flex:2 1 auto;width:100%%;display:block;min-height:30px}
+	.ha-bar-wrap{position:relative;flex:2 1 auto;width:100%%;min-height:30px;display:block}
+	.ha-bar-wrap .ha-room-chart{height:100%%;min-height:0}
+	.ha-bar-label{position:absolute;transform:translate(-50%%,-100%%);white-space:nowrap;pointer-events:none;font-variant-numeric:tabular-nums}
+	.ha-bar-label-current{font-size:9px;font-weight:600;color:var(--color-text-highlight)}
+	.ha-bar-label-secondary{font-size:7px;color:var(--color-text-subdue)}
 	.ha-chart-axis{display:flex;justify-content:space-between;flex:none;font-size:9px;letter-spacing:.02em;color:var(--color-text-base);padding:0 1px}
 	.ha-chart-axis span{display:none}
 	.ha-chart-axis span[data-tier="0"],.ha-chart-axis span[data-tier="1"]{display:inline}
