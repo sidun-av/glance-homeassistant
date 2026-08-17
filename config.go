@@ -69,7 +69,7 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Temperature.ChartHeight = 130
 	}
 	if cfg.Temperature.ChartStyle == "" {
-		cfg.Temperature.ChartStyle = "sparkline"
+		cfg.Temperature.ChartStyle = "bars"
 	}
 	if cfg.Live.PollInterval == "" {
 		cfg.Live.PollInterval = "10s"

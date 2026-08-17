@@ -17,7 +17,7 @@ temperature:
   range: 24h   # env: TEMPERATURE_RANGE
   max_points: 60   # env: TEMPERATURE_MAX_POINTS
   chart_height: 130   # env: TEMPERATURE_CHART_HEIGHT — base minimum card height in px; a room's card grows taller automatically the more it has to show (lights, occupancy, contact), scaling from this base
-  chart_style: sparkline   # env: TEMPERATURE_CHART_STYLE — or: bars
+  chart_style: bars   # env: TEMPERATURE_CHART_STYLE — or: sparkline
 
 live:
   poll_interval: 10s   # env: LIVE_POLL_INTERVAL

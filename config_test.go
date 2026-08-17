@@ -41,8 +41,8 @@ home_assistant:
 	if cfg.Temperature.ChartHeight != 130 {
 		t.Errorf("Temperature.ChartHeight = %d, want 130", cfg.Temperature.ChartHeight)
 	}
-	if cfg.Temperature.ChartStyle != "sparkline" {
-		t.Errorf("Temperature.ChartStyle = %q, want %q", cfg.Temperature.ChartStyle, "sparkline")
+	if cfg.Temperature.ChartStyle != "bars" {
+		t.Errorf("Temperature.ChartStyle = %q, want %q", cfg.Temperature.ChartStyle, "bars")
 	}
 	if cfg.Live.PollInterval != "10s" {
 		t.Errorf("Live.PollInterval = %q, want %q", cfg.Live.PollInterval, "10s")
