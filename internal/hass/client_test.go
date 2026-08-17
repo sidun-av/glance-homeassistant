@@ -225,3 +225,75 @@ func TestFetchHistory_NonOKStatus(t *testing.T) {
 		t.Fatal("expected error for 500 response, got nil")
 	}
 }
+
+func TestFetchSunHistory_ParsesAboveAndBelowHorizonSkipsUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if !strings.HasPrefix(r.URL.Path, "/api/history/period/") {
+			t.Errorf("path = %s, want prefix /api/history/period/", r.URL.Path)
+		}
+		if filter := r.URL.Query().Get("filter_entity_id"); filter != "sun.sun" {
+			t.Errorf("filter_entity_id = %q, want sun.sun", filter)
+		}
+		fmt.Fprint(w, `[
+			[
+				{"entity_id":"sun.sun","state":"below_horizon","last_changed":"2026-07-10T05:00:00Z"},
+				{"entity_id":"sun.sun","state":"above_horizon","last_changed":"2026-07-10T06:00:00Z"},
+				{"entity_id":"sun.sun","state":"unknown","last_changed":"2026-07-10T06:30:00Z"},
+				{"entity_id":"sun.sun","state":"below_horizon","last_changed":"2026-07-10T21:00:00Z"}
+			]
+		]`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 7, 10, 23, 59, 59, 0, time.UTC)
+	points, err := client.FetchSunHistory(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("FetchSunHistory: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("len(points) = %d, want 3 (the \"unknown\" state must be skipped, not crash or coerce to 0)", len(points))
+	}
+	if points[0].Value != 0.0 {
+		t.Errorf("points[0].Value = %v, want 0.0 (below_horizon)", points[0].Value)
+	}
+	if points[1].Value != 1.0 {
+		t.Errorf("points[1].Value = %v, want 1.0 (above_horizon)", points[1].Value)
+	}
+	if points[2].Value != 0.0 {
+		t.Errorf("points[2].Value = %v, want 0.0 (below_horizon)", points[2].Value)
+	}
+}
+
+func TestFetchSunHistory_NonOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	_, err := client.FetchSunHistory(context.Background(), time.Now(), time.Now())
+	if err == nil {
+		t.Fatal("expected error for 500 response, got nil")
+	}
+}
+
+func TestFetchSunHistory_NoDataReturnsEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[]`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	points, err := client.FetchSunHistory(context.Background(), time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("FetchSunHistory: %v", err)
+	}
+	if len(points) != 0 {
+		t.Errorf("len(points) = %d, want 0", len(points))
+	}
+}

@@ -222,3 +222,68 @@ func (c *Client) FetchHistory(ctx context.Context, entityIDs []string, start, en
 	}
 	return out, nil
 }
+
+// FetchSunHistory fetches sun.sun's state history over [start, end] and
+// maps each point to HistoryPoint{Value: 1.0} for "above_horizon" or 0.0
+// for "below_horizon" — any other state (e.g. "unknown", briefly possible
+// around HA restarts) is skipped rather than guessed at. Returning plain
+// HistoryPoint (the same type FetchHistory produces) lets this flow
+// through the existing StepForwardFill resampling unchanged, so a
+// daytime/nighttime series can be resampled onto the same timestamps as a
+// temperature series with no new resampling code.
+func (c *Client) FetchSunHistory(ctx context.Context, start, end time.Time) ([]HistoryPoint, error) {
+	u := fmt.Sprintf("%s/api/history/period/%s", c.BaseURL, start.UTC().Format(time.RFC3339))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	q := req.URL.Query()
+	q.Set("filter_entity_id", "sun.sun")
+	q.Set("end_time", end.UTC().Format(time.RFC3339))
+	q.Set("minimal_response", "true")
+	q.Set("no_attributes", "true")
+	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request sun history: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("sun history returned status %d", resp.StatusCode)
+	}
+
+	type rawPoint struct {
+		EntityID    string `json:"entity_id"`
+		State       string `json:"state"`
+		LastChanged string `json:"last_changed"`
+	}
+	var series [][]rawPoint
+	if err := json.NewDecoder(resp.Body).Decode(&series); err != nil {
+		return nil, fmt.Errorf("parse sun history response: %w", err)
+	}
+
+	var out []HistoryPoint
+	for _, points := range series {
+		for _, p := range points {
+			var value float64
+			switch p.State {
+			case "above_horizon":
+				value = 1.0
+			case "below_horizon":
+				value = 0.0
+			default:
+				continue
+			}
+			t, err := time.Parse(time.RFC3339, p.LastChanged)
+			if err != nil {
+				continue
+			}
+			out = append(out, HistoryPoint{Time: t, Value: value})
+		}
+	}
+	return out, nil
+}
