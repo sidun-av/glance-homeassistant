@@ -113,3 +113,48 @@ func TestAverageSeries_AllNaNProducesNaN(t *testing.T) {
 		t.Errorf("avg[0] = %v, want NaN", avg[0])
 	}
 }
+
+func TestBuildDayTimestamps_SpansLocalMidnightToMidnight(t *testing.T) {
+	now := time.Date(2026, 7, 10, 15, 30, 0, 0, time.UTC)
+	timestamps, _ := BuildDayTimestamps(now, 5)
+
+	if len(timestamps) != 5 {
+		t.Fatalf("len(timestamps) = %d, want 5", len(timestamps))
+	}
+	wantStart := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	if !timestamps[0].Equal(wantStart) {
+		t.Errorf("timestamps[0] = %v, want %v (today's local midnight)", timestamps[0], wantStart)
+	}
+	if !timestamps[4].Equal(wantEnd) {
+		t.Errorf("timestamps[4] = %v, want %v (next local midnight)", timestamps[4], wantEnd)
+	}
+}
+
+func TestBuildDayTimestamps_CurrentIndexIsLatestNotAfterNow(t *testing.T) {
+	// Day: 00:00, 06:00, 12:00, 18:00, 24:00. now=15:30 falls between
+	// index 2 (12:00) and index 3 (18:00) — current must be index 2.
+	now := time.Date(2026, 7, 10, 15, 30, 0, 0, time.UTC)
+	_, currentIndex := BuildDayTimestamps(now, 5)
+	if currentIndex != 2 {
+		t.Errorf("currentIndex = %d, want 2", currentIndex)
+	}
+}
+
+func TestBuildDayTimestamps_NowExactlyAtMidnightIsIndexZero(t *testing.T) {
+	now := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	_, currentIndex := BuildDayTimestamps(now, 5)
+	if currentIndex != 0 {
+		t.Errorf("currentIndex = %d, want 0", currentIndex)
+	}
+}
+
+func TestBuildDayTimestamps_NowLateInDayIsSecondToLastIndex(t *testing.T) {
+	// Day: 00:00, 06:00, 12:00, 18:00, 24:00(next day). now=23:59 is after
+	// 18:00 but still before the next day's midnight bucket — index 3.
+	now := time.Date(2026, 7, 10, 23, 59, 0, 0, time.UTC)
+	_, currentIndex := BuildDayTimestamps(now, 5)
+	if currentIndex != 3 {
+		t.Errorf("currentIndex = %d, want 3", currentIndex)
+	}
+}
