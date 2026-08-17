@@ -124,6 +124,25 @@ func BarChart(data BarChartData, opts BarChartOptions) string {
 		}
 	}
 
+	// labelSafeMargin keeps a text-anchor="middle" value label's glyphs
+	// from rendering outside the viewBox when its bar sits near either
+	// edge — with enough bars (e.g. the default 60-point window) a
+	// label's own x position lands close enough to 0 or Width that an
+	// unclamped position visibly clips the text (observed live: "23.8°"
+	// rendered as a clipped "23." at a card's right edge). Picked to
+	// comfortably fit a short "-12.3°"-shaped label at this chart's
+	// label font sizes (7-9px) without needing real text-metrics.
+	const labelSafeMargin = 14.0
+	clampLabelX := func(x float64) float64 {
+		if x < labelSafeMargin {
+			return labelSafeMargin
+		}
+		if x > opts.Width-labelSafeMargin {
+			return opts.Width - labelSafeMargin
+		}
+		return x
+	}
+
 	normalBarWidth := step * 0.55
 	currentBarWidth := normalBarWidth * (10.0 / 6.0)
 	if currentBarWidth > step {
@@ -156,18 +175,18 @@ func BarChart(data BarChartData, opts BarChartOptions) string {
 
 	var labels strings.Builder
 	if data.CurrentLabel != "" {
-		x := step*float64(currentIdx) + step/2
+		x := clampLabelX(step*float64(currentIdx) + step/2)
 		fmt.Fprintf(&labels, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="9" fill="var(--color-text-highlight)">%s</text>`,
 			x, topMargin-4, html.EscapeString(data.CurrentLabel))
 	}
 	if !flatSeries {
 		if minIdx != currentIdx {
-			x := step*float64(minIdx) + step/2
+			x := clampLabelX(step*float64(minIdx) + step/2)
 			fmt.Fprintf(&labels, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="7" fill="var(--color-text-subdue)">%s</text>`,
 				x, barTopY[minIdx]-3, html.EscapeString(fmt.Sprintf("%.1f°", min)))
 		}
 		if maxIdx != currentIdx {
-			x := step*float64(maxIdx) + step/2
+			x := clampLabelX(step*float64(maxIdx) + step/2)
 			fmt.Fprintf(&labels, `<text x="%.2f" y="%.2f" text-anchor="middle" font-size="7" fill="var(--color-text-subdue)">%s</text>`,
 				x, barTopY[maxIdx]-3, html.EscapeString(fmt.Sprintf("%.1f°", max)))
 		}
