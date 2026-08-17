@@ -176,11 +176,27 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rangeDur, _ := time.ParseDuration(a.cfg.Temperature.Range)
 	pollInterval, _ := time.ParseDuration(a.cfg.Live.PollInterval)
 	now := time.Now()
-	timestamps := hass.BuildTimestamps(now, rangeDur, a.cfg.Temperature.MaxPoints)
+	// A fixed local-calendar-day window (not the old "last N hours ending
+	// now" rolling one) — see BuildDayTimestamps' doc comment for why:
+	// a rolling window can't generally center a daytime band, a fixed
+	// full-day one naturally does. Temperature.Range no longer drives the
+	// window's length (it's always a full day); it's effectively
+	// vestigial now and a candidate for removal in a follow-up.
+	timestamps, currentIdx := hass.BuildDayTimestamps(now, a.cfg.Temperature.MaxPoints)
+	dayStart := timestamps[0]
 	axisLabels := sparseAxisLabels(timestamps)
+
+	// nanOutFuture blanks every index after currentIdx — those timestamps
+	// are later today and haven't happened yet, so StepForwardFill's
+	// carry-forward behavior would otherwise repeat the latest known
+	// value into them instead of correctly leaving a gap.
+	nanOutFuture := func(series []float64) {
+		for i := currentIdx + 1; i < len(series); i++ {
+			series[i] = math.NaN()
+		}
+	}
 
 	var allTempIDs []string
 	for _, card := range cards {
@@ -189,7 +205,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	history, err := a.client.FetchHistory(ctx, allTempIDs, now.Add(-rangeDur), now)
+	history, err := a.client.FetchHistory(ctx, allTempIDs, dayStart, now)
 	if err != nil {
 		log.Printf("fetch history: %v", err)
 		history = map[string][]hass.HistoryPoint{}
@@ -200,12 +216,13 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	// StepForwardFill on an empty slice returns all-NaN, and NaN >= 0.5 is
 	// false in Go, so isDaytime ends up all-false and BarChart simply
 	// omits the daytime band rather than the whole widget failing.
-	sunPoints, err := a.client.FetchSunHistory(ctx, now.Add(-rangeDur), now)
+	sunPoints, err := a.client.FetchSunHistory(ctx, dayStart, now)
 	if err != nil {
 		log.Printf("fetch sun history: %v", err)
 		sunPoints = nil
 	}
 	sunSeries := hass.StepForwardFill(sunPoints, timestamps)
+	nanOutFuture(sunSeries)
 	isDaytime := make([]bool, len(sunSeries))
 	for i, v := range sunSeries {
 		isDaytime[i] = v >= 0.5
@@ -224,19 +241,27 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 				if !ok || len(points) == 0 {
 					continue
 				}
-				series = append(series, hass.StepForwardFill(points, timestamps))
+				filled := hass.StepForwardFill(points, timestamps)
+				nanOutFuture(filled)
+				series = append(series, filled)
 			}
 			avg := hass.AverageSeries(series)
-			if len(avg) == 0 || math.IsNaN(avg[len(avg)-1]) {
+			if len(avg) == 0 || currentIdx >= len(avg) || math.IsNaN(avg[currentIdx]) {
 				view.TempNoData = true
 			} else {
-				view.TempValue = fmt.Sprintf("%.1f°", avg[len(avg)-1])
+				view.TempValue = fmt.Sprintf("%.1f°", avg[currentIdx])
 				if a.cfg.Temperature.ChartStyle == "bars" {
 					barOpts := render.BarChartOptions{Width: 220, Height: barChartNominalHeight, ClassName: "ha-room-chart"}
-					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentLabel: view.TempValue}
+					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentLabel: view.TempValue, CurrentIndex: currentIdx}
 					view.ChartSVG = render.BarChart(barData, barOpts)
 				} else {
-					view.ChartSVG = render.Sparkline(avg, render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
+					// Sparkline doesn't handle NaN (unlike BarChart, which
+					// was updated to skip it) — trim the not-yet-happened
+					// tail rather than feed it invalid points. Known gap:
+					// this loses the "blank space for later today" look
+					// bars gets; acceptable since sparkline isn't the
+					// default chart_style.
+					view.ChartSVG = render.Sparkline(avg[:currentIdx+1], render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
 				}
 				view.AxisRowHTML = render.AxisLabelsRow(axisLabels)
 			}
