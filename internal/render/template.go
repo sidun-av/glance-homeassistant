@@ -76,6 +76,7 @@ func styleBlock(cardMinHeight int) string {
 	.ha-room-chart{flex:2 1 auto;width:100%%;display:block;min-height:30px}
 
 	.ha-bar-cols{
+	  position:relative;
 	  flex:2 1 auto;width:100%%;min-height:38px;
 	  display:flex;align-items:flex-end;gap:2px;
 	}
@@ -85,11 +86,10 @@ func styleBlock(cardMinHeight int) string {
 	  padding-top:13px;
 	}
 	.ha-bar-daylight{
-	  position:absolute;inset:0;pointer-events:none;
+	  position:absolute;top:0;bottom:0;pointer-events:none;
 	  background:linear-gradient(0deg,transparent 16px,color-mix(in srgb,var(--color-primary) 12%%,transparent));
+	  border-radius:6px 6px 0 0;
 	}
-	.ha-bar-daylight-start{border-radius:6px 0 0 0}
-	.ha-bar-daylight-end{border-radius:0 6px 0 0}
 	.ha-bar-value{
 	  position:relative;margin-bottom:2px;font-size:7px;color:var(--color-text-subdue);
 	  white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;
@@ -105,7 +105,8 @@ func styleBlock(cardMinHeight int) string {
 	}
 	.ha-bar-current{width:80%%;opacity:1}
 	.ha-bar-empty{opacity:0}
-	.ha-bar-col-time{margin-top:3px;font-size:9px;color:var(--color-text-base)}
+	.ha-bar-col-time{margin-top:3px;font-size:9px;color:var(--color-text-base);opacity:0}
+	.ha-bar-col-time-visible{opacity:1}
 
 	.ha-chart-axis{display:flex;justify-content:space-between;flex:none;font-size:9px;letter-spacing:.02em;color:var(--color-text-base);padding:0 1px}
 	.ha-chart-axis span{display:none}
