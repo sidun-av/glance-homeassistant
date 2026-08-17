@@ -90,6 +90,22 @@ func sparseAxisLabels(timestamps []time.Time) []render.AxisLabel {
 	return labels
 }
 
+// barColumnTimeLabels picks the sparse per-column time labels for the
+// "bars" chart style: every 4th of the (fixed, barColumnsCount-long)
+// timestamps slice, mirroring Weather's own hardcoded nth-child(3,7,11)
+// sparse pattern for its 12 columns — a fixed small column count doesn't
+// need the denser sparkline's dyadic-tier progressive-reveal system, a
+// flat "every Nth" is exactly what the reference implementation does.
+func barColumnTimeLabels(timestamps []time.Time) []string {
+	labels := make([]string, len(timestamps))
+	for i := range timestamps {
+		if i%4 == 0 {
+			labels[i] = timestamps[i].Format("3pm")
+		}
+	}
+	return labels
+}
+
 // sizeClassForWeight maps a RoomCard's Weight onto the CSS class driving
 // its card's flex-grow/min-height tier (see internal/render/template.go's
 // styleBlock). Thresholds are fixed, not configurable — see the design
@@ -107,7 +123,7 @@ func sizeClassForWeight(weight int) string {
 
 // roomCardView maps a classified hass.RoomCard onto the render package's
 // view type, computing the derived Lit/Occupied flags used for the card's
-// background tint and glow. Temperature (HasTemperature/TempValue/ChartSVG)
+// background tint and glow. Temperature (HasTemperature/TempValue/ChartHTML)
 // is populated separately by widgetHandler, since only it fetches history
 // — liveHandler never needs a chart.
 func roomCardView(card hass.RoomCard) render.RoomCardView {
@@ -152,14 +168,26 @@ func (a *app) buildModel(ctx context.Context) ([]hass.RoomCard, error) {
 	}), nil
 }
 
-// Nominal internal SVG coordinate-space heights for the temperature chart.
-// These are unrelated to temperature.chart_height (which now sizes the
-// room *card*, not the chart) — preserveAspectRatio="none" stretches the
-// chart to fill whatever height its flex-grown .ha-room-chart box ends up
-// with, so this only needs to give the chart's internal margin/plot-area
-// proportions a sensible shape, not match any real pixel measurement.
+// Nominal internal SVG coordinate-space height for the sparkline chart
+// style. Unrelated to temperature.chart_height (which sizes the room
+// *card*, not the chart) — preserveAspectRatio="none" stretches the
+// sparkline to fill whatever height its flex-grown box ends up with, so
+// this only needs to give its internal margin/plot-area proportions a
+// sensible shape, not match any real pixel measurement. The "bars" chart
+// style no longer uses SVG at all (see internal/render/barchart.go's
+// BarColumns) so it has no equivalent constant.
 const sparklineNominalHeight = 60
-const barChartNominalHeight = 90
+
+// barColumnsCount is how many two-hour buckets the "bars" chart style
+// shows across a full calendar day — fixed at 12, mirroring Glance's own
+// built-in Weather widget exactly (its bars are also always 12 columns
+// over 24h). This intentionally does NOT scale with
+// temperature.max_points the way the (denser) sparkline style still does:
+// a dense sparkline reads fine as a smooth line, but the same density as
+// discrete bars looked visibly noisy/cramped, especially on narrow
+// (mobile) widths — Weather's chunky 12-column layout is the reference
+// this widget is matching, not a data-resolution choice.
+const barColumnsCount = 12
 
 func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -184,7 +212,16 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	// full-day one naturally does. Temperature.Range no longer drives the
 	// window's length (it's always a full day); it's effectively
 	// vestigial now and a candidate for removal in a follow-up.
-	timestamps, currentIdx := hass.BuildDayTimestamps(now, a.cfg.Temperature.MaxPoints)
+	//
+	// Point count depends on chart_style: "bars" always uses a fixed 12
+	// (see barColumnsCount's doc comment — matching Weather's own column
+	// count, not a data-resolution choice), sparkline keeps the
+	// configurable, denser temperature.max_points.
+	maxPoints := a.cfg.Temperature.MaxPoints
+	if a.cfg.Temperature.ChartStyle == "bars" {
+		maxPoints = barColumnsCount
+	}
+	timestamps, currentIdx := hass.BuildDayTimestamps(now, maxPoints)
 	dayStart := timestamps[0]
 	axisLabels := sparseAxisLabels(timestamps)
 
@@ -251,19 +288,19 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				view.TempValue = fmt.Sprintf("%.1f°", avg[currentIdx])
 				if a.cfg.Temperature.ChartStyle == "bars" {
-					barOpts := render.BarChartOptions{Width: 220, Height: barChartNominalHeight, ClassName: "ha-room-chart"}
-					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentLabel: view.TempValue, CurrentIndex: currentIdx}
-					view.ChartSVG = render.BarChart(barData, barOpts)
+					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentLabel: view.TempValue, CurrentIndex: currentIdx, TimeLabels: barColumnTimeLabels(timestamps)}
+					view.ChartHTML = render.BarColumns(barData, "ha-bar-cols")
+					view.AxisRowHTML = "" // bars renders its own per-column time labels, no separate axis row
 				} else {
-					// Sparkline doesn't handle NaN (unlike BarChart, which
+					// Sparkline doesn't handle NaN (unlike BarColumns, which
 					// was updated to skip it) — trim the not-yet-happened
 					// tail rather than feed it invalid points. Known gap:
 					// this loses the "blank space for later today" look
 					// bars gets; acceptable since sparkline isn't the
 					// default chart_style.
-					view.ChartSVG = render.Sparkline(avg[:currentIdx+1], render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
+					view.ChartHTML = render.Sparkline(avg[:currentIdx+1], render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
+					view.AxisRowHTML = render.AxisLabelsRow(axisLabels)
 				}
-				view.AxisRowHTML = render.AxisLabelsRow(axisLabels)
 			}
 		}
 

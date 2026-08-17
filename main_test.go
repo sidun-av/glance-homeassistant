@@ -120,11 +120,11 @@ func TestWidgetHandler_BarsChartStyleIncludesDaytimeBand(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "<rect") {
-		t.Errorf("body missing a daytime band <rect> — fakeHAServer reports sun.sun as above_horizon for the whole window, so one must be drawn")
+	if !strings.Contains(body, `class="ha-bar-daylight`) {
+		t.Errorf("body missing a daytime band div (ha-bar-daylight) — fakeHAServer reports sun.sun as above_horizon for the whole window, so at least one column must have it")
 	}
-	if !strings.Contains(body, `fill="var(--color-primary)"`) {
-		t.Errorf("body missing the daytime band's theme-variable fill")
+	if strings.Contains(body, `class="ha-room-chart"`) {
+		t.Errorf("body contains a ha-room-chart SVG — the bars chart_style is plain HTML (ha-bar-cols) now, not SVG (a light-bulb icon <svg> elsewhere in the card is fine and expected)")
 	}
 }
 

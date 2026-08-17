@@ -10,7 +10,7 @@ func sampleRoomCard() RoomCardView {
 		Occupied:       true,
 		HasTemperature: true,
 		TempValue:      "21.4°",
-		ChartSVG:       "<svg>lr</svg>",
+		ChartHTML:      "<svg>lr</svg>",
 		AxisRowHTML:    `<div class="ha-chart-axis"><span>8am</span><span>7pm</span></div>`,
 		Lights: []LightView{
 			{EntityID: "light.lr_main", IconSVG: LightIcon("mdi:track-light"), On: true},
@@ -150,7 +150,7 @@ func TestRenderWidget_SizeClassApplied(t *testing.T) {
 
 func TestRenderWidget_TemperatureOnlyRoomOmitsLightsAndStatus(t *testing.T) {
 	data := WidgetData{
-		Rooms:         []RoomCardView{{Room: "Kitchen", HasTemperature: true, TempValue: "25.0°", ChartSVG: "<svg>k</svg>"}},
+		Rooms:         []RoomCardView{{Room: "Kitchen", HasTemperature: true, TempValue: "25.0°", ChartHTML: "<svg>k</svg>"}},
 		CardMinHeight: 130,
 	}
 	html := RenderWidget(data)

@@ -26,8 +26,8 @@ type RoomCardView struct {
 	HasTemperature bool
 	TempNoData     bool
 	TempValue      string
-	ChartSVG       string
-	AxisRowHTML    string // "" if no chart data (see AxisLabelsRow)
+	ChartHTML      string
+	AxisRowHTML    string // "" for the "bars" chart style, which renders its own per-column time labels (see AxisLabelsRow)
 	Lights         []LightView
 	Occupancy      []SensorBadgeView
 	Contacts       []SensorBadgeView
@@ -74,11 +74,38 @@ func styleBlock(cardMinHeight int) string {
 	.ha-room-temp{font-size:13px;color:var(--color-text-highlight);font-variant-numeric:tabular-nums;white-space:nowrap}
 	.ha-temp-nodata{color:var(--color-text-subdue);font-size:.85em;padding:2px 0}
 	.ha-room-chart{flex:2 1 auto;width:100%%;display:block;min-height:30px}
-	.ha-bar-wrap{position:relative;flex:2 1 auto;width:100%%;min-height:30px;display:block}
-	.ha-bar-wrap .ha-room-chart{height:100%%;min-height:0}
-	.ha-bar-label{position:absolute;transform:translate(-50%%,-100%%);white-space:nowrap;pointer-events:none;font-variant-numeric:tabular-nums}
-	.ha-bar-label-current{font-size:9px;font-weight:600;color:var(--color-text-highlight)}
-	.ha-bar-label-secondary{font-size:7px;color:var(--color-text-subdue)}
+
+	.ha-bar-cols{
+	  flex:2 1 auto;width:100%%;min-height:38px;
+	  display:flex;align-items:flex-end;gap:2px;
+	}
+	.ha-bar-col{
+	  position:relative;flex:1 1 0;min-width:0;height:100%%;
+	  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+	  padding-top:13px;
+	}
+	.ha-bar-daylight{
+	  position:absolute;inset:0;pointer-events:none;
+	  background:linear-gradient(0deg,transparent 16px,color-mix(in srgb,var(--color-primary) 12%%,transparent));
+	}
+	.ha-bar-daylight-start{border-radius:6px 0 0 0}
+	.ha-bar-daylight-end{border-radius:0 6px 0 0}
+	.ha-bar-value{
+	  position:relative;margin-bottom:2px;font-size:7px;color:var(--color-text-subdue);
+	  white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;
+	}
+	.ha-bar-value-current{font-size:9px;font-weight:600;color:var(--color-text-highlight)}
+	.ha-bar{
+	  position:relative;width:55%%;min-width:3px;border-radius:4px 4px 0 0;
+	  background:var(--color-progress-value);opacity:.55;
+	  height:calc(4px + var(--ha-bar-height,0) * 100%%);
+	  mask-image:linear-gradient(0deg,transparent 0,#000 6px);
+	  -webkit-mask-image:linear-gradient(0deg,transparent 0,#000 6px);
+	}
+	.ha-bar-current{width:80%%;opacity:1}
+	.ha-bar-empty{opacity:0}
+	.ha-bar-col-time{margin-top:3px;font-size:9px;color:var(--color-text-base)}
+
 	.ha-chart-axis{display:flex;justify-content:space-between;flex:none;font-size:9px;letter-spacing:.02em;color:var(--color-text-base);padding:0 1px}
 	.ha-chart-axis span{display:none}
 	.ha-chart-axis span[data-tier="0"],.ha-chart-axis span[data-tier="1"]{display:inline}
@@ -170,7 +197,7 @@ func renderRoomCard(r RoomCardView) string {
 		if r.TempNoData {
 			b.WriteString(`</div><div class="ha-temp-nodata">no data</div>`)
 		} else {
-			fmt.Fprintf(&b, `<span class="ha-room-temp">%s</span></div>%s%s`, html.EscapeString(r.TempValue), r.ChartSVG, r.AxisRowHTML)
+			fmt.Fprintf(&b, `<span class="ha-room-temp">%s</span></div>%s%s`, html.EscapeString(r.TempValue), r.ChartHTML, r.AxisRowHTML)
 		}
 	} else {
 		fmt.Fprintf(&b, `<div class="ha-room-head"><span class="ha-room-name">%s</span></div>`, html.EscapeString(r.Room))

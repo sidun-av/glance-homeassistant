@@ -49,7 +49,7 @@ func TestRenderLive_MarshalsRoomsWithLightsAndSensors(t *testing.T) {
 
 func TestRenderLive_OmitsTemperatureOnlyRoom(t *testing.T) {
 	rooms := []RoomCardView{
-		{Room: "Kitchen", HasTemperature: true, TempValue: "25.0°", ChartSVG: "<svg></svg>"},
+		{Room: "Kitchen", HasTemperature: true, TempValue: "25.0°", ChartHTML: "<svg></svg>"},
 	}
 	body, err := RenderLive(rooms)
 	if err != nil {
