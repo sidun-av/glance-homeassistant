@@ -195,6 +195,22 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		history = map[string][]hass.HistoryPoint{}
 	}
 
+	// Fetched once, not per-room — sun.sun is a single global entity, not
+	// tied to any particular room. A fetch failure degrades gracefully:
+	// StepForwardFill on an empty slice returns all-NaN, and NaN >= 0.5 is
+	// false in Go, so isDaytime ends up all-false and BarChart simply
+	// omits the daytime band rather than the whole widget failing.
+	sunPoints, err := a.client.FetchSunHistory(ctx, now.Add(-rangeDur), now)
+	if err != nil {
+		log.Printf("fetch sun history: %v", err)
+		sunPoints = nil
+	}
+	sunSeries := hass.StepForwardFill(sunPoints, timestamps)
+	isDaytime := make([]bool, len(sunSeries))
+	for i, v := range sunSeries {
+		isDaytime[i] = v >= 0.5
+	}
+
 	views := make([]render.RoomCardView, len(cards))
 	for i, card := range cards {
 		view := roomCardView(card)
@@ -217,7 +233,8 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 				view.TempValue = fmt.Sprintf("%.1f°", avg[len(avg)-1])
 				if a.cfg.Temperature.ChartStyle == "bars" {
 					barOpts := render.BarChartOptions{Width: 220, Height: barChartNominalHeight, ClassName: "ha-room-chart"}
-					view.ChartSVG = render.BarChart(avg, view.TempValue, barOpts)
+					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentLabel: view.TempValue}
+					view.ChartSVG = render.BarChart(barData, barOpts)
 				} else {
 					view.ChartSVG = render.Sparkline(avg, render.SparklineOptions{Width: 220, Height: sparklineNominalHeight, ClassName: "ha-room-chart"})
 				}

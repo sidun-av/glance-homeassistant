@@ -31,7 +31,11 @@ func fakeHAServer(t *testing.T) *httptest.Server {
 			]`)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/history/period/"):
 			now := time.Now().UTC().Format(time.RFC3339)
-			fmt.Fprintf(w, `[[{"entity_id":"sensor.lr_temp","state":"21.4","last_changed":"%s"}]]`, now)
+			if r.URL.Query().Get("filter_entity_id") == "sun.sun" {
+				fmt.Fprintf(w, `[[{"entity_id":"sun.sun","state":"above_horizon","last_changed":"%s"}]]`, now)
+			} else {
+				fmt.Fprintf(w, `[[{"entity_id":"sensor.lr_temp","state":"21.4","last_changed":"%s"}]]`, now)
+			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -97,6 +101,30 @@ func TestWidgetHandler_EndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(body, `data-live-url="/ha-widget/live.json"`) {
 		t.Errorf("body missing correct live URL")
+	}
+}
+
+func TestWidgetHandler_BarsChartStyleIncludesDaytimeBand(t *testing.T) {
+	ha := fakeHAServer(t)
+	defer ha.Close()
+
+	cfg := testConfig(ha.URL)
+	cfg.Temperature.ChartStyle = "bars"
+	mux := newMux(cfg, newApp(cfg))
+
+	req := httptest.NewRequest(http.MethodGet, "/widget", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<rect") {
+		t.Errorf("body missing a daytime band <rect> — fakeHAServer reports sun.sun as above_horizon for the whole window, so one must be drawn")
+	}
+	if !strings.Contains(body, `fill="var(--color-primary)"`) {
+		t.Errorf("body missing the daytime band's theme-variable fill")
 	}
 }
 
