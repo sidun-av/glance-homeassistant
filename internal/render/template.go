@@ -95,6 +95,7 @@ func styleBlock(cardMinHeight int) string {
 	  white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;
 	}
 	.ha-bar-value-current{font-size:9px;font-weight:600;color:var(--color-text-highlight)}
+	@container (max-width:230px){.ha-bar-value:not(.ha-bar-value-current){display:none}}
 	.ha-bar{
 	  position:relative;width:55%%;min-width:3px;border-radius:4px 4px 0 0;
 	  background:var(--color-progress-value);opacity:.55;
