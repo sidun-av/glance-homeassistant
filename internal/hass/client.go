@@ -287,3 +287,61 @@ func (c *Client) FetchSunHistory(ctx context.Context, start, end time.Time) ([]H
 	}
 	return out, nil
 }
+
+// SunState is sun.sun's CURRENT state plus its next-transition
+// timestamps. Unlike FetchSunHistory (which only has data up to "now"),
+// this lets the caller determine daytime/nighttime for buckets LATER
+// than now — sunrise/sunset for the rest of today is fully
+// deterministic, the same way Glance's built-in Weather widget gets a
+// full day of sunrise/sunset from its forecast source instead of a
+// history endpoint.
+type SunState struct {
+	State       string // "above_horizon" or "below_horizon"
+	NextRising  time.Time
+	NextSetting time.Time
+}
+
+// FetchSunState fetches sun.sun's current state via Home Assistant's
+// single-entity states endpoint (not the history endpoint) to read its
+// next_rising/next_setting attributes — standard core HA attributes on
+// every sun.sun entity. A zero-value time.Time in NextRising/NextSetting
+// means that attribute was missing or unparseable; callers should treat
+// it as "unknown" rather than a real timestamp.
+func (c *Client) FetchSunState(ctx context.Context) (SunState, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/states/sun.sun", nil)
+	if err != nil {
+		return SunState{}, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return SunState{}, fmt.Errorf("request sun state: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return SunState{}, fmt.Errorf("sun state returned status %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		State      string `json:"state"`
+		Attributes struct {
+			NextRising  string `json:"next_rising"`
+			NextSetting string `json:"next_setting"`
+		} `json:"attributes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return SunState{}, fmt.Errorf("parse sun state response: %w", err)
+	}
+
+	state := SunState{State: raw.State}
+	if t, err := time.Parse(time.RFC3339, raw.Attributes.NextRising); err == nil {
+		state.NextRising = t
+	}
+	if t, err := time.Parse(time.RFC3339, raw.Attributes.NextSetting); err == nil {
+		state.NextSetting = t
+	}
+	return state, nil
+}

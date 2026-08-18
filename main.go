@@ -265,6 +265,30 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		isDaytime[i] = v >= 0.5
 	}
 
+	// History only has data up to "now", so isDaytime above is correct
+	// for i<=currentIdx but leaves every later-today bucket false
+	// (nanOutFuture blanked them). Unlike temperature, sunrise/sunset for
+	// the rest of today is fully deterministic — extend isDaytime past
+	// currentIdx using sun.sun's own next_rising/next_setting rather than
+	// leaving a false gap. A fetch failure just leaves the future portion
+	// false (same graceful degradation as the history fetch above) —
+	// never breaks the widget.
+	sunState, err := a.client.FetchSunState(ctx)
+	if err != nil {
+		log.Printf("fetch sun state: %v", err)
+	} else {
+		for i := currentIdx + 1; i < len(timestamps); i++ {
+			t := timestamps[i]
+			switch sunState.State {
+			case "above_horizon":
+				isDaytime[i] = sunState.NextSetting.IsZero() || t.Before(sunState.NextSetting)
+			case "below_horizon":
+				isDaytime[i] = !sunState.NextRising.IsZero() && !sunState.NextSetting.IsZero() &&
+					!t.Before(sunState.NextRising) && t.Before(sunState.NextSetting)
+			}
+		}
+	}
+
 	views := make([]render.RoomCardView, len(cards))
 	for i, card := range cards {
 		view := roomCardView(card)

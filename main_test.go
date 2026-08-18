@@ -128,6 +128,86 @@ func TestWidgetHandler_BarsChartStyleIncludesDaytimeBand(t *testing.T) {
 	}
 }
 
+// TestWidgetHandler_BarsChartStyle_DaylightBandExtendsPastCurrentIndexUsingSunState
+// is the regression test for the "daylight band only ever covers a tiny
+// sliver" bug: FetchSunHistory only has data up to "now", and
+// nanOutFuture blanked isDaytime for every later-today bucket — even
+// though sunrise/sunset for the rest of today is fully deterministic, not
+// unknown the way future temperature is. This mocks sun.sun's CURRENT
+// state (/api/states/sun.sun, not the history endpoint) with a
+// next_setting shortly after the next bucket past "now", and asserts the
+// single daylight run computed from BarColumns' left/right percentages
+// extends one column past currentIdx (not stopping exactly at it).
+func TestWidgetHandler_BarsChartStyle_DaylightBandExtendsPastCurrentIndexUsingSunState(t *testing.T) {
+	now := time.Now()
+	timestamps, currentIdx := hass.BuildDayTimestamps(now, 12)
+	// BuildDayTimestamps always pins the last timestamp to the following
+	// midnight, which is always after "now" for any "now" that isn't
+	// exactly midnight — so currentIdx is always < len(timestamps)-1 and a
+	// future bucket to test against always exists.
+	future := timestamps[currentIdx+1]
+	nextSetting := future.Add(1 * time.Minute)
+
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/template":
+			fmt.Fprint(w, `[{"id":"kitchen","name":"Kitchen","entities":["sensor.kitchen_temp"]}]`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/states":
+			fmt.Fprint(w, `[{"entity_id":"sensor.kitchen_temp","state":"21.4","attributes":{"friendly_name":"Kitchen Temp","device_class":"temperature"}}]`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/states/sun.sun":
+			fmt.Fprintf(w, `{"state":"above_horizon","attributes":{"next_rising":"%s","next_setting":"%s"}}`,
+				now.Add(24*time.Hour).UTC().Format(time.RFC3339), nextSetting.UTC().Format(time.RFC3339))
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/history/period/"):
+			nowStr := now.UTC().Format(time.RFC3339)
+			if r.URL.Query().Get("filter_entity_id") == "sun.sun" {
+				// Single history point, above_horizon for all of today's
+				// history so far (StepForwardFill falls back to the first
+				// known point for timestamps before it) — isolates this
+				// test to the FUTURE portion, which is what the fix changes.
+				fmt.Fprintf(w, `[[{"entity_id":"sun.sun","state":"above_horizon","last_changed":"%s"}]]`, nowStr)
+			} else {
+				fmt.Fprintf(w, `[[{"entity_id":"sensor.kitchen_temp","state":"21.4","last_changed":"%s"}]]`, nowStr)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ha.Close()
+
+	cfg := testConfig(ha.URL)
+	cfg.Temperature.ChartStyle = "bars"
+	mux := newMux(cfg, newApp(cfg))
+
+	req := httptest.NewRequest(http.MethodGet, "/widget", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// Past history is above_horizon the whole way (see server mock above),
+	// and the sun-state fix extends daytime=true through currentIdx+1 (the
+	// bucket just before next_setting) — so the single contiguous daylight
+	// run spans columns [0, currentIdx+1] out of 12.
+	const n = 12
+	wantLeft := float64(0) / n * 100
+	wantRight := float64(n-(currentIdx+1)-1) / n * 100
+	wantStyle := fmt.Sprintf(`style="left:%.4f%%;right:%.4f%%"`, wantLeft, wantRight)
+	if !strings.Contains(body, wantStyle) {
+		t.Errorf("body missing daylight run %s (currentIdx=%d) — want the band to extend one column past currentIdx using sun.sun's next_setting, not stop exactly at it:\n%s", wantStyle, currentIdx, body)
+	}
+
+	// The pre-fix behavior (stopping exactly at currentIdx, extending zero
+	// columns into the future) must NOT appear.
+	oldRight := float64(n-currentIdx-1) / n * 100
+	oldStyle := fmt.Sprintf(`style="left:%.4f%%;right:%.4f%%"`, wantLeft, oldRight)
+	if oldRight != wantRight && strings.Contains(body, oldStyle) {
+		t.Errorf("body contains the old pre-fix daylight run %s that stops exactly at currentIdx instead of extending into the future", oldStyle)
+	}
+}
+
 func TestWidgetHandler_HomeAssistantUnavailable(t *testing.T) {
 	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

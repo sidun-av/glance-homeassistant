@@ -297,3 +297,71 @@ func TestFetchSunHistory_NoDataReturnsEmpty(t *testing.T) {
 		t.Errorf("len(points) = %d, want 0", len(points))
 	}
 }
+
+func TestFetchSunState_ParsesStateAndNextTransitions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/states/sun.sun" {
+			t.Errorf("path = %s, want /api/states/sun.sun", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q, want %q", got, "Bearer test-token")
+		}
+		fmt.Fprint(w, `{"state":"above_horizon","attributes":{"next_rising":"2026-07-11T05:12:00Z","next_setting":"2026-07-10T20:45:00Z"}}`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	state, err := client.FetchSunState(context.Background())
+	if err != nil {
+		t.Fatalf("FetchSunState: %v", err)
+	}
+	if state.State != "above_horizon" {
+		t.Errorf("state.State = %q, want above_horizon", state.State)
+	}
+	wantRising := time.Date(2026, 7, 11, 5, 12, 0, 0, time.UTC)
+	if !state.NextRising.Equal(wantRising) {
+		t.Errorf("state.NextRising = %v, want %v", state.NextRising, wantRising)
+	}
+	wantSetting := time.Date(2026, 7, 10, 20, 45, 0, 0, time.UTC)
+	if !state.NextSetting.Equal(wantSetting) {
+		t.Errorf("state.NextSetting = %v, want %v", state.NextSetting, wantSetting)
+	}
+}
+
+func TestFetchSunState_NonOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	_, err := client.FetchSunState(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500 response, got nil")
+	}
+}
+
+func TestFetchSunState_MissingOrMalformedTimestampsLeaveZeroValueNotError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"state":"below_horizon","attributes":{"next_rising":"","next_setting":"not-a-timestamp"}}`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "test-token")
+	state, err := client.FetchSunState(context.Background())
+	if err != nil {
+		t.Fatalf("FetchSunState: %v, want no error even though next_rising/next_setting are unparseable", err)
+	}
+	if state.State != "below_horizon" {
+		t.Errorf("state.State = %q, want below_horizon", state.State)
+	}
+	if !state.NextRising.IsZero() {
+		t.Errorf("state.NextRising = %v, want zero value for an empty string", state.NextRising)
+	}
+	if !state.NextSetting.IsZero() {
+		t.Errorf("state.NextSetting = %v, want zero value for a malformed string", state.NextSetting)
+	}
+}
