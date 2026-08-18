@@ -104,13 +104,13 @@ func styleBlock(cardMinHeight int) string {
 	.ha-bar{
 	  position:relative;width:6px;border-radius:4px 4px 0 0;
 	  background:var(--color-progress-value);opacity:.55;
-	  height:calc(10px + var(--ha-bar-height,0) * 34px);
+	  height:calc(16px + var(--ha-bar-height,0) * 28px);
 	  mask-image:linear-gradient(0deg,transparent 0,#000 6px);
 	  -webkit-mask-image:linear-gradient(0deg,transparent 0,#000 6px);
 	}
-	.ha-room.ha-size-md .ha-bar{width:7px;height:calc(10px + var(--ha-bar-height,0) * 50px)}
-	.ha-room.ha-size-lg .ha-bar{width:9px;height:calc(10px + var(--ha-bar-height,0) * 130px)}
-	.ha-bar-current{width:10px;opacity:1;background:var(--color-primary)}
+	.ha-room.ha-size-md .ha-bar{width:7px;height:calc(16px + var(--ha-bar-height,0) * 44px)}
+	.ha-room.ha-size-lg .ha-bar{width:9px;height:calc(16px + var(--ha-bar-height,0) * 124px)}
+	.ha-bar-current{width:10px;opacity:1;background:color-mix(in srgb,var(--color-progress-value) 55%%,var(--color-text-highlight))}
 	.ha-room.ha-size-md .ha-bar-current{width:11px}
 	.ha-room.ha-size-lg .ha-bar-current{width:13px}
 	.ha-bar-empty{opacity:0}

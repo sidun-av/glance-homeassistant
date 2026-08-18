@@ -228,13 +228,13 @@ func TestRenderWidget_BarHeightUsesFixedPixelsNotPercentage(t *testing.T) {
 	if contains(html, "var(--ha-bar-height,0) * 100%") {
 		t.Errorf("html contains the old percentage-based bar height, want a fixed-pixel calc instead")
 	}
-	if !contains(html, ".ha-bar{") || !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 34px)") {
+	if !contains(html, ".ha-bar{") || !contains(html, "height:calc(16px + var(--ha-bar-height,0) * 28px)") {
 		t.Errorf("html missing the base-tier fixed-pixel .ha-bar height rule")
 	}
-	if !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 50px)}") {
+	if !contains(html, "height:calc(16px + var(--ha-bar-height,0) * 44px)}") {
 		t.Errorf("html missing the size-md tier's scaled .ha-bar height rule")
 	}
-	if !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 130px)}") {
+	if !contains(html, "height:calc(16px + var(--ha-bar-height,0) * 124px)}") {
 		t.Errorf("html missing the size-lg tier's scaled .ha-bar height rule")
 	}
 }
@@ -340,8 +340,8 @@ func TestRenderWidget_BarWidthUsesFixedPixelsNotPercentage(t *testing.T) {
 	if contains(html, "width:80%") {
 		t.Errorf("html contains the old percentage-based current-bar width, want a fixed-pixel width instead")
 	}
-	if !contains(html, ".ha-bar-current{width:10px;opacity:1;background:var(--color-primary)}") {
-		t.Errorf("html missing the current bar's fixed-pixel width and distinct accent color")
+	if !contains(html, ".ha-bar-current{width:10px;opacity:1;background:color-mix(in srgb,var(--color-progress-value) 55%,var(--color-text-highlight))}") {
+		t.Errorf("html missing the current bar's fixed-pixel width and brightened same-hue color")
 	}
 	if !contains(html, ".ha-room.ha-size-md .ha-bar-current{width:11px}") {
 		t.Errorf("html missing the size-md tier's scaled current-bar width")
