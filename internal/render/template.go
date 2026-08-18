@@ -58,15 +58,15 @@ func styleBlock(cardMinHeight int) string {
 	.ha-rooms{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
 	.ha-room{
 	  container-type:inline-size;
-	  flex:0 1 160px;min-height:%dpx;
+	  flex:0 1 auto;min-width:120px;min-height:%dpx;
 	  background:var(--color-widget-background-highlight);
 	  border:1px solid var(--color-widget-content-border);
 	  border-radius:8px;padding:12px 14px 11px;
 	  display:flex;flex-direction:column;gap:9px;
 	  transition:background .2s,border-color .2s;
 	}
-	.ha-room.ha-size-md{flex:0 1 200px;min-height:%dpx}
-	.ha-room.ha-size-lg{flex:0 1 340px;min-height:%dpx}
+	.ha-room.ha-size-md{flex:0 1 auto;min-width:160px;min-height:%dpx}
+	.ha-room.ha-size-lg{flex:0 1 auto;min-width:200px;min-height:%dpx}
 	.ha-room[data-chart="true"]{flex:1 1 160px;max-width:420px}
 	.ha-room.ha-size-md[data-chart="true"]{flex:1 1 200px;max-width:420px}
 	.ha-room.ha-size-lg[data-chart="true"]{flex:1 1 340px;max-width:420px}
@@ -89,12 +89,10 @@ func styleBlock(cardMinHeight int) string {
 	  padding-top:13px;
 	}
 	.ha-bar-daylight{
-	  position:absolute;bottom:0;height:54px;pointer-events:none;
+	  position:absolute;bottom:0;height:calc(100%% - 22px);pointer-events:none;
 	  background:linear-gradient(0deg,transparent 10px,color-mix(in srgb,var(--color-primary) 14%%,transparent));
 	  border-radius:6px 6px 0 0;
 	}
-	.ha-room.ha-size-md .ha-bar-daylight{height:70px}
-	.ha-room.ha-size-lg .ha-bar-daylight{height:150px}
 	.ha-bar-value{
 	  position:relative;margin-bottom:2px;font-size:7px;color:var(--color-text-subdue);
 	  white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;
@@ -103,13 +101,13 @@ func styleBlock(cardMinHeight int) string {
 	@container (max-width:230px){.ha-bar-value:not(.ha-bar-value-current){display:none}}
 	.ha-bar{
 	  position:relative;width:6px;border-radius:4px 4px 0 0;
-	  background:var(--color-progress-value);opacity:.55;
-	  height:calc(16px + var(--ha-bar-height,0) * 28px);
+	  background:var(--color-progress-value);opacity:.55;flex-shrink:0;
+	  height:calc(16px + var(--ha-bar-height,0) * (100%% - 31px));
 	  mask-image:linear-gradient(0deg,transparent 0,#000 6px);
 	  -webkit-mask-image:linear-gradient(0deg,transparent 0,#000 6px);
 	}
-	.ha-room.ha-size-md .ha-bar{width:7px;height:calc(16px + var(--ha-bar-height,0) * 44px)}
-	.ha-room.ha-size-lg .ha-bar{width:9px;height:calc(16px + var(--ha-bar-height,0) * 124px)}
+	.ha-room.ha-size-md .ha-bar{width:7px}
+	.ha-room.ha-size-lg .ha-bar{width:9px}
 	.ha-bar-current{width:10px;opacity:1;background:color-mix(in srgb,var(--color-progress-value) 55%%,var(--color-text-highlight))}
 	.ha-room.ha-size-md .ha-bar-current{width:11px}
 	.ha-room.ha-size-lg .ha-bar-current{width:13px}

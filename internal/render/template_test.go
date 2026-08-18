@@ -212,30 +212,36 @@ func TestRenderWidget_AppliesConfiguredCardMinHeight(t *testing.T) {
 	}
 }
 
-// TestRenderWidget_BarHeightUsesFixedPixelsNotPercentage is the regression
-// test for the "bars clamp near the top of the range" bug: .ha-bar-col is a
-// flex column, which makes .ha-bar an unintended flex item along its main
-// axis. A percentage-based height (the old `calc(4px + var(...)*100%)`)
-// gets silently flex-shrunk by the browser whenever the calc's result would
-// exceed the column's own resolved content height — invisible to any
-// Go/HTML-text check, but confirmed via live getComputedStyle measurement
-// (see the deploy verification step). Fixed pixel heights are immune to
-// this because the calc's result never depends on the container's own
-// resolved size, exactly matching how Glance's own real Weather widget
-// sizes its bars (`calc(20px + var(...) * 40px)`, no percentage).
-func TestRenderWidget_BarHeightUsesFixedPixelsNotPercentage(t *testing.T) {
+// TestRenderWidget_BarHeightUsesPercentageWithFlexShrinkZero is the
+// regression test for the "half the widget's height is empty above the
+// tallest bar" bug: a fixed-pixel bar-height cap (the previous round's
+// workaround for a flex-shrink-clamping bug) undershoots badly, since the
+// real available content height for a bar varies by render context and is
+// often much taller than any single fixed cap chosen up front.
+//
+// The flex-shrink-clamping bug's real cause is that .ha-bar is an
+// unlabeled flex item of .ha-bar-col (a flex column), so it defaults to
+// flex-shrink:1 — a percentage-based height that would exceed the
+// container gets silently shrunk. Setting flex-shrink:0 explicitly stops
+// the browser from ever clamping it, so a percentage-based height is safe
+// again and adapts to every size tier automatically — no more per-tier
+// guessed pixel maximums needed.
+func TestRenderWidget_BarHeightUsesPercentageWithFlexShrinkZero(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
-	if contains(html, "var(--ha-bar-height,0) * 100%") {
-		t.Errorf("html contains the old percentage-based bar height, want a fixed-pixel calc instead")
+	if contains(html, "height:calc(16px + var(--ha-bar-height,0) * 28px)") {
+		t.Errorf("html still has the old fixed-pixel base-tier .ha-bar height rule")
 	}
-	if !contains(html, ".ha-bar{") || !contains(html, "height:calc(16px + var(--ha-bar-height,0) * 28px)") {
-		t.Errorf("html missing the base-tier fixed-pixel .ha-bar height rule")
+	if !contains(html, ".ha-bar{") || !contains(html, "flex-shrink:0") {
+		t.Errorf("html missing flex-shrink:0 on .ha-bar")
 	}
-	if !contains(html, "height:calc(16px + var(--ha-bar-height,0) * 44px)}") {
-		t.Errorf("html missing the size-md tier's scaled .ha-bar height rule")
+	if !contains(html, "height:calc(16px + var(--ha-bar-height,0) * (100% - 31px))") {
+		t.Errorf("html missing the percentage-based .ha-bar height formula with value-label headroom")
 	}
-	if !contains(html, "height:calc(16px + var(--ha-bar-height,0) * 124px)}") {
-		t.Errorf("html missing the size-lg tier's scaled .ha-bar height rule")
+	if contains(html, "height:calc(16px + var(--ha-bar-height,0) * 44px)") {
+		t.Errorf("html still has the old fixed-pixel size-md .ha-bar height override")
+	}
+	if contains(html, "height:calc(16px + var(--ha-bar-height,0) * 124px)") {
+		t.Errorf("html still has the old fixed-pixel size-lg .ha-bar height override")
 	}
 }
 
@@ -251,10 +257,11 @@ func TestRenderWidget_SizeMdCardDoesNotDoubleGrowFlexBasis(t *testing.T) {
 		t.Errorf("html still has the old oversized size-md flex-grow/basis")
 	}
 	// Default (non-chart) size-md cards no longer grow at all (flex:0 1
-	// 200px, see Fix 1 in TestRenderWidget_OnlyChartBearingCardsGrow) —
-	// only a chart-bearing size-md card grows, and even then it's capped.
-	if !contains(html, "ha-size-md{flex:0 1 200px") {
-		t.Errorf("html missing the reduced, non-growing size-md flex:0 1 200px rule")
+	// auto with a min-width floor, see Fix 1 in
+	// TestRenderWidget_OnlyChartBearingCardsGrow) — only a chart-bearing
+	// size-md card grows, and even then it's capped.
+	if !contains(html, "ha-size-md{flex:0 1 auto;min-width:160px") {
+		t.Errorf("html missing the reduced, non-growing size-md flex:0 1 auto;min-width:160px rule")
 	}
 }
 
@@ -282,22 +289,29 @@ func TestRenderWidget_BootstrapScriptCarriesLiveConfig(t *testing.T) {
 // should grow, and even then only up to a capped max-width so a lone chart
 // card on a wide row doesn't stretch its now-fixed-pixel bars into a
 // gap-riddled mess.
+//
+// The non-chart base rules also switched from a guessed fixed-pixel
+// flex-basis (which was wider than a room's actual shrink-to-fit content
+// needs, and wrong differently for every room's exact content mix) to
+// flex-basis:auto with a small min-width floor — this lets the card
+// shrink-to-fit its actual content while still guaranteeing a usable
+// minimum for a room with just one tiny icon.
 func TestRenderWidget_OnlyChartBearingCardsGrow(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
-	if !contains(html, ".ha-room{") || !contains(html, "flex:0 1 160px") {
-		t.Errorf("html missing the base tier's non-growing flex-basis rule")
+	if !contains(html, ".ha-room{") || !contains(html, "flex:0 1 auto;min-width:120px") {
+		t.Errorf("html missing the base tier's shrink-to-fit flex-basis:auto rule with its min-width floor")
 	}
 	if !contains(html, `.ha-room[data-chart="true"]{flex:1 1 160px;max-width:420px}`) {
 		t.Errorf("html missing the chart-bearing base tier's growing, capped override")
 	}
-	if !contains(html, `.ha-room.ha-size-md{flex:0 1 200px`) {
-		t.Errorf("html missing the size-md tier's non-growing flex-basis rule")
+	if !contains(html, `.ha-room.ha-size-md{flex:0 1 auto;min-width:160px`) {
+		t.Errorf("html missing the size-md tier's shrink-to-fit flex-basis:auto rule with its min-width floor")
 	}
 	if !contains(html, `.ha-room.ha-size-md[data-chart="true"]{flex:1 1 200px;max-width:420px}`) {
 		t.Errorf("html missing the chart-bearing size-md tier's growing, capped override")
 	}
-	if !contains(html, `.ha-room.ha-size-lg{flex:0 1 340px`) {
-		t.Errorf("html missing the size-lg tier's non-growing flex-basis rule")
+	if !contains(html, `.ha-room.ha-size-lg{flex:0 1 auto;min-width:200px`) {
+		t.Errorf("html missing the size-lg tier's shrink-to-fit flex-basis:auto rule with its min-width floor")
 	}
 	if !contains(html, `.ha-room.ha-size-lg[data-chart="true"]{flex:1 1 340px;max-width:420px}`) {
 		t.Errorf("html missing the chart-bearing size-lg tier's growing, capped override")
@@ -356,21 +370,28 @@ func TestRenderWidget_BarWidthUsesFixedPixelsNotPercentage(t *testing.T) {
 // .ha-bar-daylight used to span top:0;bottom:0 across the FULL height of
 // .ha-bar-cols, which flex-grows taller than the actual bar+label content —
 // leaving empty tinted space above the tallest possible bar. Anchoring the
-// highlight to the bottom with a height matched to each tier's real
-// bar-track extent makes it read as an integrated highlight behind the bars.
+// highlight to the bottom with a height matched to the bar track's real
+// extent makes it read as an integrated highlight behind the bars.
+//
+// The height is now percentage-based (matching .ha-bar's own percentage
+// formula, see TestRenderWidget_BarHeightUsesPercentageWithFlexShrinkZero)
+// rather than a fixed pixel value sized to the old fixed bar-height caps —
+// those old caps are gone, so a fixed daylight height could now clip a
+// taller bar. The percentage formula scales consistently at every size
+// tier, so the old per-tier overrides are removed entirely.
 func TestRenderWidget_DaylightHighlightAnchoredToBarTrack(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
 	if contains(html, "top:0;bottom:0") {
 		t.Errorf("html still has the old full-height top:0;bottom:0 daylight rule")
 	}
-	if !contains(html, ".ha-bar-daylight{") || !contains(html, "bottom:0;height:54px") {
-		t.Errorf("html missing the base-tier bottom-anchored, height-capped daylight rule")
+	if !contains(html, ".ha-bar-daylight{") || !contains(html, "bottom:0;height:calc(100% - 22px)") {
+		t.Errorf("html missing the bottom-anchored, percentage-based daylight height rule")
 	}
-	if !contains(html, ".ha-room.ha-size-md .ha-bar-daylight{height:70px}") {
-		t.Errorf("html missing the size-md tier's scaled daylight height")
+	if contains(html, ".ha-room.ha-size-md .ha-bar-daylight{height:70px}") {
+		t.Errorf("html still has the old fixed-pixel size-md daylight height override")
 	}
-	if !contains(html, ".ha-room.ha-size-lg .ha-bar-daylight{height:150px}") {
-		t.Errorf("html missing the size-lg tier's scaled daylight height")
+	if contains(html, ".ha-room.ha-size-lg .ha-bar-daylight{height:150px}") {
+		t.Errorf("html still has the old fixed-pixel size-lg daylight height override")
 	}
 }
 
