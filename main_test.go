@@ -95,9 +95,11 @@ func TestWidgetHandler_EndToEnd(t *testing.T) {
 	// on its own (as part of its [data-occupied="true"] attribute
 	// selectors), so a bare check would pass even if Hallway's own <div>
 	// never got the attribute. Hallway has no lights in this fixture, so
-	// data-lit="false" is the expected value alongside it.
-	if !strings.Contains(body, `data-room="Hallway" data-lit="false" data-occupied="true">`) {
-		t.Errorf("body missing Hallway's occupied state on its own element")
+	// data-lit="false" is the expected value alongside it, and no
+	// temperature sensor, so data-chart="false" (see Fix 1 in template.go —
+	// only chart-bearing cards grow to fill row space).
+	if !strings.Contains(body, `data-room="Hallway" data-lit="false" data-occupied="true" data-chart="false">`) {
+		t.Errorf("body missing Hallway's occupied/chart state on its own element")
 	}
 	if !strings.Contains(body, `data-live-url="/ha-widget/live.json"`) {
 		t.Errorf("body missing correct live URL")
@@ -379,6 +381,38 @@ func TestSparseAxisLabels_MorePointsRevealHigherTiers(t *testing.T) {
 func TestSparseAxisLabels_EmptyTimestampsReturnsNil(t *testing.T) {
 	if labels := sparseAxisLabels(nil); labels != nil {
 		t.Errorf("labels = %+v, want nil", labels)
+	}
+}
+
+// TestBarColumnTimeLabels_LabelsAreShortenedWithoutTrailingM is the
+// regression test for the "sparse time labels overlap adjacent bars" bug:
+// at the bars chart's real live card width (173px, 12 columns ~13px each),
+// a 4-character label like "8am" (~25-28px wide) overflows roughly 2
+// columns' worth sideways into a neighboring bar. Stripping the trailing
+// "m" ("12am" -> "12a", "8am" -> "8a", "5pm" -> "5p") shortens every label
+// by one character (~25% narrower), which combined with the smaller
+// .ha-bar-col-time font-size eliminates the overlap.
+func TestBarColumnTimeLabels_LabelsAreShortenedWithoutTrailingM(t *testing.T) {
+	base := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	var timestamps []time.Time
+	for i := 0; i < 12; i++ {
+		timestamps = append(timestamps, base.Add(time.Duration(i)*2*time.Hour))
+	}
+	labels := barColumnTimeLabels(timestamps)
+
+	want := []string{"12a", "", "", "", "8a", "", "", "", "4p", "", "", ""}
+	if len(labels) != len(want) {
+		t.Fatalf("len(labels) = %d, want %d", len(labels), len(want))
+	}
+	for i, w := range want {
+		if labels[i] != w {
+			t.Errorf("labels[%d] = %q, want %q", i, labels[i], w)
+		}
+	}
+	for _, l := range labels {
+		if strings.HasSuffix(l, "m") {
+			t.Errorf("labels = %+v, want no label ending in the old trailing \"m\" (e.g. \"12am\"/\"8am\"/\"5pm\")", labels)
+		}
 	}
 }
 

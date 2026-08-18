@@ -93,10 +93,11 @@ func TestRenderWidget_RoomCardCarriesLitAndOccupiedState(t *testing.T) {
 	// checks — the static CSS block contains data-lit="true" and
 	// data-occupied="true" on their own (as part of its attribute
 	// selectors), so a bare check for either would pass regardless of what
-	// the room's own <div> actually carries. This exact three-attribute
-	// sequence only ever appears on the rendered room element.
-	if !contains(html, `data-room="Living Room" data-lit="true" data-occupied="true">`) {
-		t.Errorf("html missing the room's data-room/data-lit/data-occupied attributes")
+	// the room's own <div> actually carries. This exact four-attribute
+	// sequence (including data-chart, added for Fix 1) only ever appears on
+	// the rendered room element.
+	if !contains(html, `data-room="Living Room" data-lit="true" data-occupied="true" data-chart="true">`) {
+		t.Errorf("html missing the room's data-room/data-lit/data-occupied/data-chart attributes")
 	}
 }
 
@@ -230,10 +231,10 @@ func TestRenderWidget_BarHeightUsesFixedPixelsNotPercentage(t *testing.T) {
 	if !contains(html, ".ha-bar{") || !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 34px)") {
 		t.Errorf("html missing the base-tier fixed-pixel .ha-bar height rule")
 	}
-	if !contains(html, ".ha-room.ha-size-md .ha-bar{height:calc(10px + var(--ha-bar-height,0) * 50px)}") {
+	if !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 50px)}") {
 		t.Errorf("html missing the size-md tier's scaled .ha-bar height rule")
 	}
-	if !contains(html, ".ha-room.ha-size-lg .ha-bar{height:calc(10px + var(--ha-bar-height,0) * 130px)}") {
+	if !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 130px)}") {
 		t.Errorf("html missing the size-lg tier's scaled .ha-bar height rule")
 	}
 }
@@ -249,8 +250,11 @@ func TestRenderWidget_SizeMdCardDoesNotDoubleGrowFlexBasis(t *testing.T) {
 	if contains(html, "ha-size-md{flex:2 1 320px") {
 		t.Errorf("html still has the old oversized size-md flex-grow/basis")
 	}
-	if !contains(html, "ha-size-md{flex:1 1 200px") {
-		t.Errorf("html missing the reduced size-md flex:1 1 200px rule")
+	// Default (non-chart) size-md cards no longer grow at all (flex:0 1
+	// 200px, see Fix 1 in TestRenderWidget_OnlyChartBearingCardsGrow) —
+	// only a chart-bearing size-md card grows, and even then it's capped.
+	if !contains(html, "ha-size-md{flex:0 1 200px") {
+		t.Errorf("html missing the reduced, non-growing size-md flex:0 1 200px rule")
 	}
 }
 
@@ -267,6 +271,106 @@ func TestRenderWidget_BootstrapScriptCarriesLiveConfig(t *testing.T) {
 	}
 	if !contains(html, "onerror=") {
 		t.Errorf("html missing the onerror bootstrap trigger")
+	}
+}
+
+// TestRenderWidget_OnlyChartBearingCardsGrow is the regression test for the
+// "Bedroom/Hallway cards stretch into large empty right-side space" bug: a
+// room with no temperature chart has content (icon row, status chip) that
+// stacks in independent rows and never fills extra width, so flex-grow:1 on
+// every tier just leaves dead space. Only chart-bearing cards (HasTemperature)
+// should grow, and even then only up to a capped max-width so a lone chart
+// card on a wide row doesn't stretch its now-fixed-pixel bars into a
+// gap-riddled mess.
+func TestRenderWidget_OnlyChartBearingCardsGrow(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	if !contains(html, ".ha-room{") || !contains(html, "flex:0 1 160px") {
+		t.Errorf("html missing the base tier's non-growing flex-basis rule")
+	}
+	if !contains(html, `.ha-room[data-chart="true"]{flex:1 1 160px;max-width:420px}`) {
+		t.Errorf("html missing the chart-bearing base tier's growing, capped override")
+	}
+	if !contains(html, `.ha-room.ha-size-md{flex:0 1 200px`) {
+		t.Errorf("html missing the size-md tier's non-growing flex-basis rule")
+	}
+	if !contains(html, `.ha-room.ha-size-md[data-chart="true"]{flex:1 1 200px;max-width:420px}`) {
+		t.Errorf("html missing the chart-bearing size-md tier's growing, capped override")
+	}
+	if !contains(html, `.ha-room.ha-size-lg{flex:0 1 340px`) {
+		t.Errorf("html missing the size-lg tier's non-growing flex-basis rule")
+	}
+	if !contains(html, `.ha-room.ha-size-lg[data-chart="true"]{flex:1 1 340px;max-width:420px}`) {
+		t.Errorf("html missing the chart-bearing size-lg tier's growing, capped override")
+	}
+}
+
+func TestRenderRoomCard_DataChartAttributeReflectsHasTemperature(t *testing.T) {
+	withChart := renderRoomCard(RoomCardView{Room: "Kitchen", HasTemperature: true, TempValue: "20.0°", ChartHTML: "<svg></svg>"})
+	if !contains(withChart, `data-chart="true"`) {
+		t.Errorf("html = %q, want data-chart=\"true\" for a room with a temperature chart", withChart)
+	}
+
+	noChart := renderRoomCard(RoomCardView{Room: "Bedroom", HasTemperature: false})
+	if !contains(noChart, `data-chart="false"`) {
+		t.Errorf("html = %q, want data-chart=\"false\" for a room with no temperature chart", noChart)
+	}
+}
+
+// TestRenderWidget_BarWidthUsesFixedPixelsNotPercentage is the regression
+// test for the "bars look like blocky rectangles instead of slender bars"
+// bug: percentage-based bar width (the old `width:55%`) is fragile on a
+// flex-grown container (now also relevant per Fix 1's capped-growth chart
+// cards), producing ~44px-wide blocks on a wide card instead of the ~6px
+// bars Glance's real Weather widget uses. Fixed pixel widths are immune to
+// this because they never depend on the container's resolved size.
+func TestRenderWidget_BarWidthUsesFixedPixelsNotPercentage(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	if contains(html, "width:55%") {
+		t.Errorf("html contains the old percentage-based bar width, want a fixed-pixel width instead")
+	}
+	if !contains(html, ".ha-bar{") || !contains(html, "width:6px") {
+		t.Errorf("html missing the base-tier fixed-pixel .ha-bar width rule")
+	}
+	if !contains(html, ".ha-room.ha-size-md .ha-bar{width:7px") {
+		t.Errorf("html missing the size-md tier's scaled .ha-bar width rule")
+	}
+	if !contains(html, ".ha-room.ha-size-lg .ha-bar{width:9px") {
+		t.Errorf("html missing the size-lg tier's scaled .ha-bar width rule")
+	}
+	if contains(html, "width:80%") {
+		t.Errorf("html contains the old percentage-based current-bar width, want a fixed-pixel width instead")
+	}
+	if !contains(html, ".ha-bar-current{width:10px;opacity:1;background:var(--color-primary)}") {
+		t.Errorf("html missing the current bar's fixed-pixel width and distinct accent color")
+	}
+	if !contains(html, ".ha-room.ha-size-md .ha-bar-current{width:11px}") {
+		t.Errorf("html missing the size-md tier's scaled current-bar width")
+	}
+	if !contains(html, ".ha-room.ha-size-lg .ha-bar-current{width:13px}") {
+		t.Errorf("html missing the size-lg tier's scaled current-bar width")
+	}
+}
+
+// TestRenderWidget_DaylightHighlightAnchoredToBarTrack is the regression
+// test for the "daylight tint reads as a disconnected floating box" bug:
+// .ha-bar-daylight used to span top:0;bottom:0 across the FULL height of
+// .ha-bar-cols, which flex-grows taller than the actual bar+label content —
+// leaving empty tinted space above the tallest possible bar. Anchoring the
+// highlight to the bottom with a height matched to each tier's real
+// bar-track extent makes it read as an integrated highlight behind the bars.
+func TestRenderWidget_DaylightHighlightAnchoredToBarTrack(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	if contains(html, "top:0;bottom:0") {
+		t.Errorf("html still has the old full-height top:0;bottom:0 daylight rule")
+	}
+	if !contains(html, ".ha-bar-daylight{") || !contains(html, "bottom:0;height:54px") {
+		t.Errorf("html missing the base-tier bottom-anchored, height-capped daylight rule")
+	}
+	if !contains(html, ".ha-room.ha-size-md .ha-bar-daylight{height:70px}") {
+		t.Errorf("html missing the size-md tier's scaled daylight height")
+	}
+	if !contains(html, ".ha-room.ha-size-lg .ha-bar-daylight{height:150px}") {
+		t.Errorf("html missing the size-lg tier's scaled daylight height")
 	}
 }
 

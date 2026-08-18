@@ -58,15 +58,18 @@ func styleBlock(cardMinHeight int) string {
 	.ha-rooms{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
 	.ha-room{
 	  container-type:inline-size;
-	  flex:1 1 160px;min-height:%dpx;
+	  flex:0 1 160px;min-height:%dpx;
 	  background:var(--color-widget-background-highlight);
 	  border:1px solid var(--color-widget-content-border);
 	  border-radius:8px;padding:12px 14px 11px;
 	  display:flex;flex-direction:column;gap:9px;
 	  transition:background .2s,border-color .2s;
 	}
-	.ha-room.ha-size-md{flex:1 1 200px;min-height:%dpx}
-	.ha-room.ha-size-lg{flex:3 1 340px;min-height:%dpx}
+	.ha-room.ha-size-md{flex:0 1 200px;min-height:%dpx}
+	.ha-room.ha-size-lg{flex:0 1 340px;min-height:%dpx}
+	.ha-room[data-chart="true"]{flex:1 1 160px;max-width:420px}
+	.ha-room.ha-size-md[data-chart="true"]{flex:1 1 200px;max-width:420px}
+	.ha-room.ha-size-lg[data-chart="true"]{flex:1 1 340px;max-width:420px}
 	.ha-room[data-lit="true"]{background:rgba(240,196,121,.14);border-color:rgba(240,196,121,.35)}
 
 	.ha-room-head{flex:none;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
@@ -86,10 +89,12 @@ func styleBlock(cardMinHeight int) string {
 	  padding-top:13px;
 	}
 	.ha-bar-daylight{
-	  position:absolute;top:0;bottom:0;pointer-events:none;
-	  background:linear-gradient(0deg,transparent 16px,color-mix(in srgb,var(--color-primary) 12%%,transparent));
+	  position:absolute;bottom:0;height:54px;pointer-events:none;
+	  background:linear-gradient(0deg,transparent 10px,color-mix(in srgb,var(--color-primary) 14%%,transparent));
 	  border-radius:6px 6px 0 0;
 	}
+	.ha-room.ha-size-md .ha-bar-daylight{height:70px}
+	.ha-room.ha-size-lg .ha-bar-daylight{height:150px}
 	.ha-bar-value{
 	  position:relative;margin-bottom:2px;font-size:7px;color:var(--color-text-subdue);
 	  white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;
@@ -97,17 +102,19 @@ func styleBlock(cardMinHeight int) string {
 	.ha-bar-value-current{font-size:9px;font-weight:600;color:var(--color-text-highlight)}
 	@container (max-width:230px){.ha-bar-value:not(.ha-bar-value-current){display:none}}
 	.ha-bar{
-	  position:relative;width:55%%;min-width:3px;border-radius:4px 4px 0 0;
+	  position:relative;width:6px;border-radius:4px 4px 0 0;
 	  background:var(--color-progress-value);opacity:.55;
 	  height:calc(10px + var(--ha-bar-height,0) * 34px);
 	  mask-image:linear-gradient(0deg,transparent 0,#000 6px);
 	  -webkit-mask-image:linear-gradient(0deg,transparent 0,#000 6px);
 	}
-	.ha-room.ha-size-md .ha-bar{height:calc(10px + var(--ha-bar-height,0) * 50px)}
-	.ha-room.ha-size-lg .ha-bar{height:calc(10px + var(--ha-bar-height,0) * 130px)}
-	.ha-bar-current{width:80%%;opacity:1}
+	.ha-room.ha-size-md .ha-bar{width:7px;height:calc(10px + var(--ha-bar-height,0) * 50px)}
+	.ha-room.ha-size-lg .ha-bar{width:9px;height:calc(10px + var(--ha-bar-height,0) * 130px)}
+	.ha-bar-current{width:10px;opacity:1;background:var(--color-primary)}
+	.ha-room.ha-size-md .ha-bar-current{width:11px}
+	.ha-room.ha-size-lg .ha-bar-current{width:13px}
 	.ha-bar-empty{opacity:0}
-	.ha-bar-col-time{margin-top:3px;font-size:9px;color:var(--color-text-base);opacity:0}
+	.ha-bar-col-time{margin-top:3px;font-size:8px;color:var(--color-text-base);opacity:0;white-space:nowrap}
 	.ha-bar-col-time-visible{opacity:1}
 
 	.ha-chart-axis{display:flex;justify-content:space-between;flex:none;font-size:9px;letter-spacing:.02em;color:var(--color-text-base);padding:0 1px}
@@ -193,8 +200,8 @@ func renderRoomCard(r RoomCardView) string {
 	if r.SizeClass != "" {
 		classes += " " + r.SizeClass
 	}
-	fmt.Fprintf(&b, `<div class="%s" data-room="%s" data-lit="%t" data-occupied="%t">`,
-		classes, html.EscapeString(r.Room), r.Lit, r.Occupied)
+	fmt.Fprintf(&b, `<div class="%s" data-room="%s" data-lit="%t" data-occupied="%t" data-chart="%t">`,
+		classes, html.EscapeString(r.Room), r.Lit, r.Occupied, r.HasTemperature)
 
 	if r.HasTemperature {
 		fmt.Fprintf(&b, `<div class="ha-room-head"><span class="ha-room-name">%s</span>`, html.EscapeString(r.Room))

@@ -100,7 +100,7 @@ func barColumnTimeLabels(timestamps []time.Time) []string {
 	labels := make([]string, len(timestamps))
 	for i := range timestamps {
 		if i%4 == 0 {
-			labels[i] = timestamps[i].Format("3pm")
+			labels[i] = strings.TrimSuffix(timestamps[i].Format("3pm"), "m")
 		}
 	}
 	return labels
