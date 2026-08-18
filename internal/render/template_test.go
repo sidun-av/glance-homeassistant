@@ -211,6 +211,49 @@ func TestRenderWidget_AppliesConfiguredCardMinHeight(t *testing.T) {
 	}
 }
 
+// TestRenderWidget_BarHeightUsesFixedPixelsNotPercentage is the regression
+// test for the "bars clamp near the top of the range" bug: .ha-bar-col is a
+// flex column, which makes .ha-bar an unintended flex item along its main
+// axis. A percentage-based height (the old `calc(4px + var(...)*100%)`)
+// gets silently flex-shrunk by the browser whenever the calc's result would
+// exceed the column's own resolved content height — invisible to any
+// Go/HTML-text check, but confirmed via live getComputedStyle measurement
+// (see the deploy verification step). Fixed pixel heights are immune to
+// this because the calc's result never depends on the container's own
+// resolved size, exactly matching how Glance's own real Weather widget
+// sizes its bars (`calc(20px + var(...) * 40px)`, no percentage).
+func TestRenderWidget_BarHeightUsesFixedPixelsNotPercentage(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	if contains(html, "var(--ha-bar-height,0) * 100%") {
+		t.Errorf("html contains the old percentage-based bar height, want a fixed-pixel calc instead")
+	}
+	if !contains(html, ".ha-bar{") || !contains(html, "height:calc(10px + var(--ha-bar-height,0) * 34px)") {
+		t.Errorf("html missing the base-tier fixed-pixel .ha-bar height rule")
+	}
+	if !contains(html, ".ha-room.ha-size-md .ha-bar{height:calc(10px + var(--ha-bar-height,0) * 50px)}") {
+		t.Errorf("html missing the size-md tier's scaled .ha-bar height rule")
+	}
+	if !contains(html, ".ha-room.ha-size-lg .ha-bar{height:calc(10px + var(--ha-bar-height,0) * 130px)}") {
+		t.Errorf("html missing the size-lg tier's scaled .ha-bar height rule")
+	}
+}
+
+// TestRenderWidget_SizeMdCardDoesNotDoubleGrowFlexBasis is the regression
+// test for "Bedroom's oversized size-md card pushes Kitchen to the next
+// row": .ha-room.ha-size-md used to be flex:2 1 320px (double flex-grow,
+// wide basis), which grabbed far more leftover row space than its actual
+// vertically-stacked content (small light icons, one occupancy chip) needed,
+// starving neighboring base-tier cards of room on the same line.
+func TestRenderWidget_SizeMdCardDoesNotDoubleGrowFlexBasis(t *testing.T) {
+	html := RenderWidget(sampleWidgetData())
+	if contains(html, "ha-size-md{flex:2 1 320px") {
+		t.Errorf("html still has the old oversized size-md flex-grow/basis")
+	}
+	if !contains(html, "ha-size-md{flex:1 1 200px") {
+		t.Errorf("html missing the reduced size-md flex:1 1 200px rule")
+	}
+}
+
 func TestRenderWidget_BootstrapScriptCarriesLiveConfig(t *testing.T) {
 	html := RenderWidget(sampleWidgetData())
 	if !contains(html, `data-live-url="/ha-widget/live.json"`) {
