@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -138,17 +139,31 @@ func TestWidgetHandler_BarsChartStyleIncludesDaytimeBand(t *testing.T) {
 // unknown the way future temperature is. This mocks sun.sun's CURRENT
 // state (/api/states/sun.sun, not the history endpoint) with a
 // next_setting shortly after the next bucket past "now", and asserts the
-// single daylight run computed from BarColumns' left/right percentages
-// extends one column past currentIdx (not stopping exactly at it).
+// daylight highlight covers more columns than currentIdx alone (not
+// stopping exactly at it). Since the Weather port, the highlight is one
+// nested inset:0 div per daytime column rather than one positioned div per
+// contiguous run, so the assertion counts columns instead of parsing
+// left/right percentages.
 func TestWidgetHandler_BarsChartStyle_DaylightBandExtendsPastCurrentIndexUsingSunState(t *testing.T) {
 	now := time.Now()
-	timestamps, currentIdx := hass.BuildDayTimestamps(now, 12)
-	// BuildDayTimestamps always pins the last timestamp to the following
-	// midnight, which is always after "now" for any "now" that isn't
-	// exactly midnight — so currentIdx is always < len(timestamps)-1 and a
-	// future bucket to test against always exists.
-	future := timestamps[currentIdx+1]
-	nextSetting := future.Add(1 * time.Minute)
+	// next_setting is placed 4h01m out, which is past the END of the bucket
+	// after the one containing now: bucket ends fall every 2h, so the bucket
+	// containing now ends within 2h and the one after it within 4h. That
+	// guarantees at least one future bucket is still daytime whatever
+	// wall-clock time the test happens to run at. next_rising is later
+	// still, which is what puts SolarNoon on its above-the-horizon branch.
+	nextSetting := now.Add(4*time.Hour + time.Minute)
+	nextRising := now.Add(12 * time.Hour)
+
+	// The window is derived from the sun state now (see
+	// hass.BuildCenteredDayBuckets), so the expected column layout has to be
+	// derived the same way rather than assumed to be a calendar day.
+	sun := hass.SunState{State: "above_horizon", NextRising: nextRising, NextSetting: nextSetting}
+	center, ok := sun.SolarNoon()
+	if !ok {
+		t.Fatal("SolarNoon returned !ok for a fully populated sun state")
+	}
+	timestamps, currentIdx, _ := hass.BuildCenteredDayBuckets(now, center, 12)
 
 	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -158,14 +173,15 @@ func TestWidgetHandler_BarsChartStyle_DaylightBandExtendsPastCurrentIndexUsingSu
 			fmt.Fprint(w, `[{"entity_id":"sensor.kitchen_temp","state":"21.4","attributes":{"friendly_name":"Kitchen Temp","device_class":"temperature"}}]`)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/states/sun.sun":
 			fmt.Fprintf(w, `{"state":"above_horizon","attributes":{"next_rising":"%s","next_setting":"%s"}}`,
-				now.Add(24*time.Hour).UTC().Format(time.RFC3339), nextSetting.UTC().Format(time.RFC3339))
+				nextRising.UTC().Format(time.RFC3339), nextSetting.UTC().Format(time.RFC3339))
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/history/period/"):
 			nowStr := now.UTC().Format(time.RFC3339)
 			if r.URL.Query().Get("filter_entity_id") == "sun.sun" {
-				// Single history point, above_horizon for all of today's
-				// history so far (StepForwardFill falls back to the first
-				// known point for timestamps before it) — isolates this
-				// test to the FUTURE portion, which is what the fix changes.
+				// Single history point, above_horizon for the whole
+				// elapsed part of the window (StepForwardFill falls back to
+				// the first known point for timestamps before it) — isolates
+				// this test to the FUTURE portion, which is what the fix
+				// changes.
 				fmt.Fprintf(w, `[[{"entity_id":"sun.sun","state":"above_horizon","last_changed":"%s"}]]`, nowStr)
 			} else {
 				fmt.Fprintf(w, `[[{"entity_id":"sensor.kitchen_temp","state":"21.4","last_changed":"%s"}]]`, nowStr)
@@ -190,23 +206,32 @@ func TestWidgetHandler_BarsChartStyle_DaylightBandExtendsPastCurrentIndexUsingSu
 	body := rec.Body.String()
 
 	// Past history is above_horizon the whole way (see server mock above),
-	// and the sun-state fix extends daytime=true through currentIdx+1 (the
-	// bucket just before next_setting) — so the single contiguous daylight
-	// run spans columns [0, currentIdx+1] out of 12.
-	const n = 12
-	wantLeft := float64(0) / n * 100
-	wantRight := float64(n-(currentIdx+1)-1) / n * 100
-	wantStyle := fmt.Sprintf(`style="left:%.4f%%;right:%.4f%%"`, wantLeft, wantRight)
-	if !strings.Contains(body, wantStyle) {
-		t.Errorf("body missing daylight run %s (currentIdx=%d) — want the band to extend one column past currentIdx using sun.sun's next_setting, not stop exactly at it:\n%s", wantStyle, currentIdx, body)
+	// so every bucket up to and including currentIdx is daytime; the
+	// sun-state fix then keeps every later bucket that still falls before
+	// next_setting daytime too. The pre-fix behavior stopped dead at
+	// currentIdx.
+	wantCols := 0
+	for i, ts := range timestamps {
+		if i <= currentIdx || ts.Before(nextSetting) {
+			wantCols++
+		}
 	}
-
-	// The pre-fix behavior (stopping exactly at currentIdx, extending zero
-	// columns into the future) must NOT appear.
-	oldRight := float64(n-currentIdx-1) / n * 100
-	oldStyle := fmt.Sprintf(`style="left:%.4f%%;right:%.4f%%"`, wantLeft, oldRight)
-	if oldRight != wantRight && strings.Contains(body, oldStyle) {
-		t.Errorf("body contains the old pre-fix daylight run %s that stops exactly at currentIdx instead of extending into the future", oldStyle)
+	if wantCols <= currentIdx+1 {
+		t.Fatalf("test setup is not exercising the fix: next_setting must fall past at least one future bucket (currentIdx=%d, want>%d daytime columns, got %d)", currentIdx, currentIdx+1, wantCols)
+	}
+	gotCols := strings.Count(body, `<div class="ha-bar-daylight`)
+	if gotCols != wantCols {
+		t.Errorf("daylight column count = %d, want %d (currentIdx=%d) — the band must extend past currentIdx using sun.sun's next_setting, not stop exactly at it:\n%s", gotCols, wantCols, currentIdx, body)
+	}
+	// A single unbroken run, anchored at column 0 and rounded off at its
+	// end. Counted against the markup only — matching the bare class name
+	// would also hit the ".ha-bar-daylight-sunrise{...}" rule in the style
+	// block this same body carries.
+	if got := strings.Count(body, `-sunrise"`) + strings.Count(body, "-sunrise "); got != 1 {
+		t.Errorf("sunrise-rounded column count = %d, want 1 (the run starts at column 0 and is never broken)", got)
+	}
+	if got := strings.Count(body, `-sunset"`); got != 1 {
+		t.Errorf("sunset-rounded column count = %d, want 1", got)
 	}
 }
 
@@ -384,15 +409,17 @@ func TestSparseAxisLabels_EmptyTimestampsReturnsNil(t *testing.T) {
 	}
 }
 
-// TestBarColumnTimeLabels_LabelsAreShortenedWithoutTrailingM is the
-// regression test for the "sparse time labels overlap adjacent bars" bug:
-// at the bars chart's real live card width (173px, 12 columns ~13px each),
-// a 4-character label like "8am" (~25-28px wide) overflows roughly 2
-// columns' worth sideways into a neighboring bar. Stripping the trailing
-// "m" ("12am" -> "12a", "8am" -> "8a", "5pm" -> "5p") shortens every label
-// by one character (~25% narrower), which combined with the smaller
-// .ha-bar-col-time font-size eliminates the overlap.
-func TestBarColumnTimeLabels_LabelsAreShortenedWithoutTrailingM(t *testing.T) {
+// TestBarColumnTimeLabels_EveryColumnGetsAFullLabel pins the Weather port:
+// weather.html emits `index $.TimeLabels $i` for every one of its twelve
+// columns and lets CSS decide which are visible at rest (:nth-child(3),
+// (7), (11)) while hover reveals the rest — so a sparse Go-side slice with
+// only three non-empty entries would leave nine columns with nothing to
+// reveal. The abbreviated "12a"/"8a"/"4p" form this used to emit was a
+// space-saving invention that Weather doesn't have; the labels that stay
+// visible at rest are the inset columns 3/7/11, which have neighbours on
+// both sides to overflow into, so the full "12am"/"8am"/"4pm" form no
+// longer collides with anything.
+func TestBarColumnTimeLabels_EveryColumnGetsAFullLabel(t *testing.T) {
 	base := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	var timestamps []time.Time
 	for i := 0; i < 12; i++ {
@@ -400,18 +427,13 @@ func TestBarColumnTimeLabels_LabelsAreShortenedWithoutTrailingM(t *testing.T) {
 	}
 	labels := barColumnTimeLabels(timestamps)
 
-	want := []string{"12a", "", "", "", "8a", "", "", "", "4p", "", "", ""}
+	want := []string{"12am", "2am", "4am", "6am", "8am", "10am", "12pm", "2pm", "4pm", "6pm", "8pm", "10pm"}
 	if len(labels) != len(want) {
 		t.Fatalf("len(labels) = %d, want %d", len(labels), len(want))
 	}
 	for i, w := range want {
 		if labels[i] != w {
 			t.Errorf("labels[%d] = %q, want %q", i, labels[i], w)
-		}
-	}
-	for _, l := range labels {
-		if strings.HasSuffix(l, "m") {
-			t.Errorf("labels = %+v, want no label ending in the old trailing \"m\" (e.g. \"12am\"/\"8am\"/\"5pm\")", labels)
 		}
 	}
 }
@@ -470,5 +492,51 @@ func TestRoomCardView_AllLightsOffAndNoOccupancyIsNotLitOrOccupied(t *testing.T)
 	}
 	if view.Occupied {
 		t.Error("Occupied = true, want false (no occupancy sensor)")
+	}
+}
+
+// TestProjectYesterday_FillsOnlyTheNotYetHappenedTail pins the split: every
+// bucket up to and including currentIdx is a measurement and must survive
+// untouched, and every bucket after it is a projection.
+func TestProjectYesterday_FillsOnlyTheNotYetHappenedTail(t *testing.T) {
+	values := []float64{20, 21, 22, math.NaN(), math.NaN(), math.NaN()}
+	dayEarlier := []float64{10, 11, 12, 13, 14, 15}
+
+	projectYesterday(values, dayEarlier, 2)
+
+	want := []float64{20, 21, 22, 13, 14, 15}
+	for i := range want {
+		if values[i] != want[i] {
+			t.Errorf("values[%d] = %v, want %v (full result %v)", i, values[i], want[i], values)
+		}
+	}
+}
+
+func TestProjectYesterday_LeavesGapsWhereYesterdayIsUnknown(t *testing.T) {
+	values := []float64{20, math.NaN(), math.NaN()}
+	dayEarlier := []float64{10, math.NaN(), 12}
+
+	projectYesterday(values, dayEarlier, 0)
+
+	if !math.IsNaN(values[1]) {
+		t.Errorf("values[1] = %v, want NaN — a sensor with no history that far back must leave an empty column", values[1])
+	}
+	if values[2] != 12 {
+		t.Errorf("values[2] = %v, want 12", values[2])
+	}
+	if values[0] != 20 {
+		t.Errorf("values[0] = %v, want the measured value untouched", values[0])
+	}
+}
+
+// A shorter dayEarlier slice must not panic or truncate the measured half.
+func TestProjectYesterday_ToleratesShorterProjectionSlice(t *testing.T) {
+	values := []float64{20, math.NaN(), math.NaN()}
+	projectYesterday(values, []float64{10, 11}, 0)
+	if values[1] != 11 {
+		t.Errorf("values[1] = %v, want 11", values[1])
+	}
+	if !math.IsNaN(values[2]) {
+		t.Errorf("values[2] = %v, want it left as NaN", values[2])
 	}
 }

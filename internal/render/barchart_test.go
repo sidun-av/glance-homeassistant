@@ -11,24 +11,37 @@ func TestBarColumns_EmptyValuesReturnsEmptyWrapper(t *testing.T) {
 	if !strings.HasPrefix(html, `<div class="ha-bar-cols">`) {
 		t.Errorf("html = %q, want it to start with the wrapper div", html)
 	}
-	if strings.Count(html, `class="ha-bar-col"`)+strings.Count(html, `data-current`) > 0 {
+	if countColumns(html) != 0 {
 		t.Errorf("html = %q, want no columns for empty values", html)
 	}
 }
 
 func TestBarColumns_RendersOneColumnPerValue(t *testing.T) {
-	html := BarColumns(BarChartData{Values: []float64{10, 15, 12, 20}, CurrentIndex: 3, CurrentLabel: "20.0°"}, "ha-bar-cols")
-	if count := strings.Count(html, `class="ha-bar-col"`); count != 4 {
+	html := BarColumns(BarChartData{Values: []float64{10, 15, 12, 20}, CurrentIndex: 3}, "ha-bar-cols")
+	if count := countColumns(html); count != 4 {
 		t.Errorf("column count = %d, want 4", count)
 	}
-	if strings.Count(html, `<div class="ha-bar `) != 1 || strings.Count(html, `class="ha-bar"`) != 3 {
-		t.Errorf("html = %q, want 3 plain bars + 1 current bar (ha-bar ha-bar-current)", html)
+	if count := strings.Count(html, `class="ha-bar-col-current"`); count != 0 {
+		t.Errorf("html = %q, want ha-bar-col-current only as a second class on .ha-bar-col", html)
+	}
+	if count := strings.Count(html, `class="ha-bar-col ha-bar-col-current"`); count != 1 {
+		t.Errorf("html = %q, want exactly 1 current column", html)
+	}
+}
+
+// TestBarColumns_WrapperCarriesColumnCount pins the custom property the CSS
+// needs to size each column as 100%/N (Weather hardcodes /12; this chart
+// stays generic over len(Values)).
+func TestBarColumns_WrapperCarriesColumnCount(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10, 15, 12}}, "ha-bar-cols")
+	if !strings.HasPrefix(html, `<div class="ha-bar-cols" style="--ha-bar-cols:3">`) {
+		t.Errorf("html = %q, want the wrapper to carry --ha-bar-cols:3", html)
 	}
 }
 
 func TestBarColumns_SkipsBarForNaNValue(t *testing.T) {
 	html := BarColumns(BarChartData{Values: []float64{10, math.NaN(), 12}}, "ha-bar-cols")
-	if strings.Count(html, `class="ha-bar-col"`) != 3 {
+	if countColumns(html) != 3 {
 		t.Errorf("want 3 columns total even with a NaN gap")
 	}
 	if strings.Count(html, "ha-bar-empty") != 1 {
@@ -36,112 +49,143 @@ func TestBarColumns_SkipsBarForNaNValue(t *testing.T) {
 	}
 }
 
-func TestBarColumns_IncludesCurrentValueLabel(t *testing.T) {
-	html := BarColumns(BarChartData{Values: []float64{10, 20}, CurrentIndex: 1, CurrentLabel: "20.0°"}, "ha-bar-cols")
-	if !strings.Contains(html, "20.0") {
-		t.Errorf("html = %q, want it to contain the current value label", html)
+// TestBarColumns_EveryColumnGetsAValueLabel is the port's headline change:
+// Weather renders all twelve values and hides them with opacity, revealing
+// the current one always and any other on hover. The old scheme labelled
+// only current/min/max, which is what left stray numbers floating over the
+// chart and made it read unlike the widget it's modelled on.
+func TestBarColumns_EveryColumnGetsAValueLabel(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10, 15, 12, 20}, CurrentIndex: 3}, "ha-bar-cols")
+	if got := strings.Count(html, `class="ha-bar-value"`); got != 4 {
+		t.Errorf("value-label count = %d, want 4 (one per column): %s", got, html)
 	}
-	if !strings.Contains(html, "ha-bar-value-current") {
-		t.Errorf("html = %q, want the current label to carry the ha-bar-value-current class", html)
+	for _, want := range []string{">10<", ">15<", ">12<", ">20<"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("html = %q, want it to contain the value label %q", html, want)
+		}
 	}
-	if strings.Contains(html, "<svg") || strings.Contains(html, "<text") {
-		t.Errorf("html = %q, want no SVG at all — this is a plain-HTML chart now", html)
-	}
-}
-
-func TestBarColumns_NoCurrentLabelWhenCurrentIndexOutOfRange(t *testing.T) {
-	html := BarColumns(BarChartData{Values: []float64{10, 20}, CurrentIndex: -1, CurrentLabel: "20.0°"}, "ha-bar-cols")
+	// No per-column "current"/"min"/"max" label variants survive — emphasis
+	// is a column-level class now, exactly like Weather's.
 	if strings.Contains(html, "ha-bar-value-current") {
-		t.Errorf("html = %q, want no current label when CurrentIndex is out of range", html)
-	}
-	if strings.Contains(html, `data-current="true"`) {
-		t.Errorf("html = %q, want no column marked data-current=\"true\"", html)
+		t.Errorf("html = %q, want no ha-bar-value-current class (superseded by .ha-bar-col-current)", html)
 	}
 }
 
-func TestBarColumns_EscapesCurrentValueLabel(t *testing.T) {
-	html := BarColumns(BarChartData{Values: []float64{10}, CurrentIndex: 0, CurrentLabel: "<b>"}, "ha-bar-cols")
+// TestBarColumns_ValuesAreAbsoluteIntegersWithNoDegreeSign pins Weather's
+// own formatting: the digits alone go in the div (absInt in weather.html),
+// with the sign and the "°" supplied by CSS ::before/::after so the digits
+// stay optically centered over their bar.
+func TestBarColumns_ValuesAreAbsoluteIntegersWithNoDegreeSign(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{-3.4, 21.6}, CurrentIndex: 1}, "ha-bar-cols")
+	if strings.Contains(html, "°") {
+		t.Errorf("html = %q, want no degree sign in the markup (CSS ::after supplies it)", html)
+	}
+	if strings.Contains(html, ">-3<") || strings.Contains(html, "-3.4") {
+		t.Errorf("html = %q, want the negative value rendered as its absolute integer", html)
+	}
+	if !strings.Contains(html, `class="ha-bar-value ha-bar-value-negative">3<`) {
+		t.Errorf("html = %q, want the negative column flagged for the CSS '-' pseudo-element", html)
+	}
+	if !strings.Contains(html, `class="ha-bar-value">22<`) {
+		t.Errorf("html = %q, want 21.6 rounded to 22", html)
+	}
+}
+
+func TestBarColumns_NoCurrentColumnWhenCurrentIndexOutOfRange(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10, 20}, CurrentIndex: -1}, "ha-bar-cols")
+	if strings.Contains(html, "ha-bar-col-current") {
+		t.Errorf("html = %q, want no current column when CurrentIndex is out of range", html)
+	}
+}
+
+func TestBarColumns_NoCurrentColumnWhenCurrentValueIsNaN(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10, math.NaN()}, CurrentIndex: 1}, "ha-bar-cols")
+	if strings.Contains(html, "ha-bar-col-current") {
+		t.Errorf("html = %q, want no current column when that bucket has no data", html)
+	}
+}
+
+func TestBarColumns_EscapesTimeLabel(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10}, TimeLabels: []string{"<b>"}}, "ha-bar-cols")
 	if strings.Contains(html, "<b>") {
-		t.Errorf("html = %q, want current value label HTML-escaped", html)
+		t.Errorf("html = %q, want the time label HTML-escaped", html)
 	}
 }
 
 func TestBarColumns_FlatSeriesDoesNotDivideByZero(t *testing.T) {
-	html := BarColumns(BarChartData{Values: []float64{5, 5, 5}, CurrentIndex: 2, CurrentLabel: "5.0°"}, "ha-bar-cols")
+	html := BarColumns(BarChartData{Values: []float64{5, 5, 5}, CurrentIndex: 2}, "ha-bar-cols")
 	if strings.Contains(html, "NaN") {
 		t.Errorf("html = %q, want no NaN for a flat series", html)
+	}
+	if got := strings.Count(html, "--ha-bar-height:0.50"); got != 3 {
+		t.Errorf("html = %q, want all three flat-series bars at the mid height", html)
 	}
 }
 
 func TestBarColumns_AppliesClassName(t *testing.T) {
 	html := BarColumns(BarChartData{Values: []float64{10, 20}}, "custom-class")
-	if !strings.HasPrefix(html, `<div class="custom-class">`) {
+	if !strings.HasPrefix(html, `<div class="custom-class" style="--ha-bar-cols:2">`) {
 		t.Errorf("html = %q, want it to start with the given class name", html)
 	}
 }
 
 // TestBarColumns_EveryColumnHasSameChildElementCount is the regression test
 // for the "bars look misaligned when some columns have an hour label and
-// others don't" bug: .ha-bar-col uses justify-content:flex-end, which packs
-// each column's children as one contiguous group flush to the bottom. The
+// others don't" bug: .ha-bar-col uses justify-content:end, which packs each
+// column's children as one contiguous group flush to the bottom. The
 // time-label div used to be omitted entirely from the DOM for columns with
 // no label text, so a labeled column had one more child than an unlabeled
 // one and flex-end pushed its bar higher — an artifact of DOM structure,
-// not real data. Every column must now emit the exact same number of child
-// elements regardless of whether it's a "labeled" column, with visibility
-// controlled purely via CSS.
+// not real data. Every column must emit the same number of child elements
+// (daylight columns excepted — that div is absolutely positioned and so is
+// out of flow), with visibility controlled purely via CSS.
 func TestBarColumns_EveryColumnHasSameChildElementCount(t *testing.T) {
-	// 12 columns, sparse labels every 4th (mirrors barColumnTimeLabels in
-	// main.go), plus a NaN gap to also cover the empty-bar branch.
-	timeLabels := []string{"12am", "", "", "", "8am", "", "", "", "5pm", "", "", ""}
+	timeLabels := []string{"12am", "2am", "4am", "6am", "8am", "10am", "12pm", "2pm", "4pm", "6pm", "8pm", "10pm"}
 	values := []float64{10, 11, 12, math.NaN(), 14, 15, 16, 17, 18, 19, 20, 21}
-	html := BarColumns(BarChartData{
-		Values: values, TimeLabels: timeLabels, CurrentIndex: 8, CurrentLabel: "18.0°",
-	}, "ha-bar-cols")
+	html := BarColumns(BarChartData{Values: values, TimeLabels: timeLabels, CurrentIndex: 8}, "ha-bar-cols")
 
-	const colOpenPrefix = `<div class="ha-bar-col" data-current=`
-	parts := strings.Split(html, colOpenPrefix)
+	parts := splitColumns(html)
 	if len(parts) != len(values)+1 {
 		t.Fatalf("got %d column parts, want %d (%d columns + preamble): %s", len(parts), len(values)+1, len(values), html)
 	}
-
 	counts := make([]int, len(values))
 	for i, part := range parts[1:] {
 		counts[i] = strings.Count(part, "<div")
 	}
 	for i, c := range counts {
 		if c != counts[0] {
-			t.Errorf("column %d has %d child <div> elements, want %d (same as column 0) — labeled and unlabeled columns must share identical DOM shape:\n%s", i, c, counts[0], html)
+			t.Errorf("column %d has %d child <div> elements, want %d (same as column 0):\n%s", i, c, counts[0], html)
 		}
 	}
 	if counts[0] != 3 {
 		t.Errorf("child <div> count per column = %d, want 3 (value, bar, time-label div always present)", counts[0])
 	}
 
-	// The time-label div must be present, just empty, for unlabeled
-	// columns — never omitted from the DOM.
-	if got := strings.Count(html, `class="ha-bar-col-time"`); got != len(values)-3 {
-		t.Errorf("plain (hidden) ha-bar-col-time count = %d, want %d", got, len(values)-3)
+	// Every column's time label is in the DOM — the sparse look is CSS-only.
+	if got := strings.Count(html, `class="ha-bar-col-time"`); got != len(values) {
+		t.Errorf("time-label div count = %d, want %d (one per column)", got, len(values))
 	}
-	if got := strings.Count(html, `class="ha-bar-col-time ha-bar-col-time-visible"`); got != 3 {
-		t.Errorf("visible ha-bar-col-time count = %d, want 3 (indices 0, 4, 8)", got)
+	if strings.Contains(html, "ha-bar-col-time-visible") {
+		t.Errorf("html = %q, want no per-column visibility modifier class — :nth-child does that now", html)
+	}
+	for _, want := range timeLabels {
+		if !strings.Contains(html, ">"+want+"<") {
+			t.Errorf("html = %q, want it to contain the time label %q", html, want)
+		}
 	}
 }
 
 // --- Daytime band ---
 
-// TestBarColumns_DaytimeBand_GapProducesTwoSeparateSeamlessRuns is the
-// regression test for the "highlight band has gaps" bug: the daylight
-// highlight used to be rendered per-column (nested inside each
-// .ha-bar-col), so .ha-bar-cols' flex `gap` between adjacent columns left a
-// visible unhighlighted seam at every boundary within what should read as
-// one continuous run. It's now rendered as one container-level div per
-// contiguous run of daytime columns (positioned with left/right spanning
-// the whole run, gaps included), so a single gap in the pattern must
-// produce exactly two of those divs, each with distinct left/right, and an
-// unbroken run must produce exactly one seamless div — never one div per
-// column and never one div spanning the gap.
-func TestBarColumns_DaytimeBand_GapProducesTwoSeparateSeamlessRuns(t *testing.T) {
+// TestBarColumns_DaytimeBand_IsOneNestedDivPerDaytimeColumn pins the revert
+// back to Weather's own technique. The band used to be rendered as one
+// absolutely-positioned div per contiguous RUN of daytime columns, spanning
+// the flex `gap` between them, purely because that gap otherwise showed
+// through as an unhighlighted seam. Weather has no gap (columns are
+// width:100%/12 and butt up against each other), so the highlight is just a
+// plain inset:0 div nested in each daytime column, with the run's first and
+// last column carrying the rounded-corner modifiers.
+func TestBarColumns_DaytimeBand_IsOneNestedDivPerDaytimeColumn(t *testing.T) {
 	// 9 columns; daytime at [2,3,4], a gap at 5, daytime again at [6,7,8].
 	isDaytime := make([]bool, 9)
 	for _, i := range []int{2, 3, 4, 6, 7, 8} {
@@ -153,40 +197,56 @@ func TestBarColumns_DaytimeBand_GapProducesTwoSeparateSeamlessRuns(t *testing.T)
 	}
 	html := BarColumns(BarChartData{Values: values, IsDaytime: isDaytime}, "ha-bar-cols")
 
-	if count := strings.Count(html, `class="ha-bar-daylight"`); count != 2 {
-		t.Fatalf("daylight div count = %d, want exactly 2 (one per contiguous run, not one per column or one spanning the gap): %s", count, html)
+	if count := strings.Count(html, "ha-bar-daylight"); count != 6+4 {
+		// 6 base classes + 2 sunrise + 2 sunset modifiers, all sharing the
+		// "ha-bar-daylight" prefix.
+		t.Errorf("daylight class occurrences = %d, want 10 (6 columns + 2 sunrise + 2 sunset): %s", count, html)
 	}
+	if count := strings.Count(html, `<div class="ha-bar-daylight`); count != 6 {
+		t.Errorf("daylight div count = %d, want one per daytime column (6): %s", count, html)
+	}
+	if count := strings.Count(html, "ha-bar-daylight-sunrise"); count != 2 {
+		t.Errorf("sunrise-rounded count = %d, want 2 (one per run's first column): %s", count, html)
+	}
+	if count := strings.Count(html, "ha-bar-daylight-sunset"); count != 2 {
+		t.Errorf("sunset-rounded count = %d, want 2 (one per run's last column): %s", count, html)
+	}
+	// No positioned run divs left over from the old approach.
+	if strings.Contains(html, "left:") || strings.Contains(html, "right:") {
+		t.Errorf("html = %q, want no inline left/right run positioning — the divs are inset:0 inside their column now", html)
+	}
+	// Each daylight div must be nested INSIDE its column, i.e. appear after
+	// that column's opening tag and before the next one.
+	firstCol := strings.Index(html, `<div class="ha-bar-col"`)
+	firstDay := strings.Index(html, `<div class="ha-bar-daylight`)
+	if firstDay < firstCol {
+		t.Errorf("html = %q, want daylight divs nested inside their columns", html)
+	}
+}
 
-	// Run 1: columns 2..4 of 9 -> left 2/9*100=22.2222%, right (9-4-1)/9*100=44.4444%.
-	if !strings.Contains(html, `style="left:22.2222%;right:44.4444%"`) {
-		t.Errorf("html = %q, want the first run positioned left:22.2222%%;right:44.4444%%", html)
-	}
-	// Run 2: columns 6..8 of 9 -> left 6/9*100=66.6667%, right (9-8-1)/9*100=0.0000%.
-	if !strings.Contains(html, `style="left:66.6667%;right:0.0000%"`) {
-		t.Errorf("html = %q, want the second run positioned left:66.6667%%;right:0.0000%%", html)
-	}
-
-	// A single unbroken run must collapse into exactly one seamless div.
-	unbroken := BarColumns(BarChartData{
-		Values:    []float64{10, 11, 12, 13, 14},
-		IsDaytime: []bool{false, true, true, true, false},
+// A single-column daytime run carries both rounding modifiers.
+func TestBarColumns_DaytimeBand_SingleColumnRunIsRoundedOnBothSides(t *testing.T) {
+	html := BarColumns(BarChartData{
+		Values:    []float64{10, 11, 12},
+		IsDaytime: []bool{false, true, false},
 	}, "ha-bar-cols")
-	if count := strings.Count(unbroken, `class="ha-bar-daylight"`); count != 1 {
-		t.Errorf("daylight div count = %d, want exactly 1 for a single unbroken run: %s", count, unbroken)
+	if !strings.Contains(html, `class="ha-bar-daylight ha-bar-daylight-sunrise ha-bar-daylight-sunset"`) {
+		t.Errorf("html = %q, want a single-column run rounded on both top corners", html)
 	}
+}
 
-	// The old per-column rounding modifier classes must be gone — rounding
-	// is now baked into the base .ha-bar-daylight rule (see styleBlock)
-	// since each div now IS one whole run.
-	if strings.Contains(html, "ha-bar-daylight-start") || strings.Contains(html, "ha-bar-daylight-end") {
-		t.Errorf("html = %q, want no per-column daylight rounding modifier classes", html)
+// A run that reaches the chart's edge must not be treated as continuing
+// past it — index 0 has no left neighbour, index n-1 no right neighbour.
+func TestBarColumns_DaytimeBand_EdgeColumnsGetRoundedCorners(t *testing.T) {
+	html := BarColumns(BarChartData{
+		Values:    []float64{10, 11, 12},
+		IsDaytime: []bool{true, true, true},
+	}, "ha-bar-cols")
+	if got := strings.Count(html, "ha-bar-daylight-sunrise"); got != 1 {
+		t.Errorf("sunrise count = %d, want 1 (column 0): %s", got, html)
 	}
-
-	// The daylight divs must not be nested inside a .ha-bar-col (i.e. they
-	// must come before any .ha-bar-col in the markup, as container-level
-	// siblings, not per-column children).
-	if idx := strings.Index(html, `class="ha-bar-daylight"`); idx == -1 || idx > strings.Index(html, `class="ha-bar-col"`) {
-		t.Errorf("html = %q, want daylight run divs to appear before (i.e. not nested inside) any .ha-bar-col div", html)
+	if got := strings.Count(html, "ha-bar-daylight-sunset"); got != 1 {
+		t.Errorf("sunset count = %d, want 1 (last column): %s", got, html)
 	}
 }
 
@@ -211,72 +271,108 @@ func TestBarColumns_DaytimeBand_NilIsDaytimeProducesNoDaylightDiv(t *testing.T) 
 	}
 }
 
-// --- Min/max labels ---
+func TestBarColumns_BarHeightUsesCSSCustomProperty(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10, 12, 14, 16, 18}, CurrentIndex: 4}, "ha-bar-cols")
 
-func TestBarColumns_MinMaxLabels_RenderBothWhenDistinctFromCurrent(t *testing.T) {
-	html := BarColumns(BarChartData{
-		Values:       []float64{10, 8, 15, 20, 12},
-		CurrentIndex: 4,
-		CurrentLabel: "12.0°",
-	}, "ha-bar-cols")
-
-	if !strings.Contains(html, "8.0") {
-		t.Errorf("html = %q, want the min value (8.0) labeled", html)
+	if !strings.Contains(html, "--ha-bar-height:1.00") {
+		t.Errorf("html = %q, want the max-value bar's height custom property at 1.00", html)
 	}
-	if !strings.Contains(html, "20.0") {
-		t.Errorf("html = %q, want the max value (20.0) labeled", html)
+	if !strings.Contains(html, "--ha-bar-height:0.00") {
+		t.Errorf("html = %q, want the min-value bar's height custom property at 0.00", html)
+	}
+	if strings.Contains(html, "<svg") || strings.Contains(html, "<text") {
+		t.Errorf("html = %q, want no SVG at all — this is a plain-HTML chart", html)
 	}
 }
 
-func TestBarColumns_MinMaxLabels_SuppressedWhenCoincidingWithCurrentIndex(t *testing.T) {
-	// Current index 4 IS the max (20.0) — must not double-label that column.
-	html := BarColumns(BarChartData{
-		Values:       []float64{10, 8, 15, 12, 20},
-		CurrentIndex: 4,
-		CurrentLabel: "20.0°",
-	}, "ha-bar-cols")
-
-	if strings.Count(html, "20.0") != 1 {
-		t.Errorf("html = %q, want the value 20.0 to appear exactly once (current label only)", html)
+// NaN buckets must not drag the min/max scaling.
+func TestBarColumns_NaNIsExcludedFromScaling(t *testing.T) {
+	html := BarColumns(BarChartData{Values: []float64{10, 20, math.NaN()}, CurrentIndex: 1}, "ha-bar-cols")
+	if !strings.Contains(html, "--ha-bar-height:0.00") || !strings.Contains(html, "--ha-bar-height:1.00") {
+		t.Errorf("html = %q, want the two real values to span the full 0..1 range", html)
 	}
 }
 
-func TestBarColumns_MinMaxLabels_FlatSeriesRendersNeitherLabel(t *testing.T) {
+// countColumns counts .ha-bar-col opening tags without also matching the
+// .ha-bar-col-time / .ha-bar-cols prefixes.
+func countColumns(html string) int {
+	return strings.Count(html, `<div class="ha-bar-col"`) + strings.Count(html, `<div class="ha-bar-col `)
+}
+
+// splitColumns splits the markup on column boundaries, returning the
+// preamble followed by one chunk per column.
+func splitColumns(html string) []string {
+	marker := "\x00"
+	normalized := strings.ReplaceAll(html, `<div class="ha-bar-col"`, marker)
+	normalized = strings.ReplaceAll(normalized, `<div class="ha-bar-col `, marker)
+	return strings.Split(normalized, marker)
+}
+
+// --- Projected (not-yet-happened) columns ---
+
+// TestBarColumns_MarksColumnsAfterCurrentAsProjected pins the one addition
+// to Weather's own column markup. Weather's future columns are a real
+// forecast and need no distinguishing; a room thermometer has none, so the
+// caller fills those buckets from the same clock time a day earlier (see
+// projectYesterday in main.go) and they must be drawn faded rather than
+// passed off as measurements.
+func TestBarColumns_MarksColumnsAfterCurrentAsProjected(t *testing.T) {
 	html := BarColumns(BarChartData{
-		Values:       []float64{15, 15, 15},
+		Values:       []float64{10, 11, 12, 13, 14},
 		CurrentIndex: 2,
-		CurrentLabel: "15.0°",
 	}, "ha-bar-cols")
 
-	if strings.Count(html, "15.0") != 1 {
-		t.Errorf("html = %q, want 15.0 to appear exactly once (current label only) for a flat series", html)
+	if got := strings.Count(html, "ha-bar-projected"); got != 2 {
+		t.Errorf("projected bar count = %d, want 2 (indices 3 and 4): %s", got, html)
+	}
+	if got := strings.Count(html, "ha-bar-value-projected"); got != 2 {
+		t.Errorf("projected value-label count = %d, want 2: %s", got, html)
+	}
+	// The measured half, current column included, must carry neither class.
+	measured, _, _ := strings.Cut(html, `class="ha-bar-value ha-bar-value-projected"`)
+	if strings.Contains(measured, "projected") {
+		t.Errorf("a bucket at or before CurrentIndex was marked projected: %s", html)
 	}
 }
 
-func TestBarColumns_MinMaxLabels_SkipNaNValues(t *testing.T) {
-	// Index 3 (later today, NaN) must never be picked as min or max.
-	html := BarColumns(BarChartData{
-		Values:       []float64{10, 8, 20, math.NaN()},
-		CurrentIndex: 2,
-		CurrentLabel: "20.0°",
-	}, "ha-bar-cols")
-
-	if !strings.Contains(html, "8.0") {
-		t.Errorf("html = %q, want the min value (8.0, ignoring the trailing NaN) labeled", html)
+func TestBarColumns_NoProjectedColumnsWhenThereIsNoCurrentColumn(t *testing.T) {
+	// Without a current column there is no "now" to split measured from
+	// projected, so nothing may be faded.
+	html := BarColumns(BarChartData{Values: []float64{10, 11, 12}, CurrentIndex: -1}, "ha-bar-cols")
+	if strings.Contains(html, "projected") {
+		t.Errorf("html = %q, want no projected columns when CurrentIndex is out of range", html)
 	}
 }
 
-func TestBarColumns_CurrentBarHeightUsesCSSCustomProperty(t *testing.T) {
+// A projected bucket with no reading a day earlier stays an empty column
+// rather than being faded-but-present.
+func TestBarColumns_ProjectedGapRendersAsEmptyColumn(t *testing.T) {
 	html := BarColumns(BarChartData{
-		Values:       []float64{10, 12, 14, 16, 18},
-		CurrentIndex: 4,
-		CurrentLabel: "18.0°",
+		Values:       []float64{10, 11, math.NaN(), 13},
+		CurrentIndex: 1,
 	}, "ha-bar-cols")
 
-	if !strings.Contains(html, "--ha-bar-height:1.000") {
-		t.Errorf("html = %q, want the max-value (current) bar's height custom property at 1.000", html)
+	if got := strings.Count(html, "ha-bar-empty"); got != 1 {
+		t.Errorf("empty-bar count = %d, want 1: %s", got, html)
 	}
-	if !strings.Contains(html, "--ha-bar-height:0.000") {
-		t.Errorf("html = %q, want the min-value bar's height custom property at 0.000", html)
+	if got := strings.Count(html, "ha-bar-projected"); got != 1 {
+		t.Errorf("projected bar count = %d, want 1 (only index 3 has a value): %s", got, html)
+	}
+}
+
+// Projected values share the chart's single vertical axis, so they have to
+// take part in the min/max scaling — otherwise a warm afternoon yesterday
+// would be drawn at the same height as a cool morning today.
+func TestBarColumns_ProjectedValuesParticipateInScaling(t *testing.T) {
+	html := BarColumns(BarChartData{
+		Values:       []float64{20, 21, 30}, // the max lives in a projected bucket
+		CurrentIndex: 1,
+	}, "ha-bar-cols")
+
+	if !strings.Contains(html, "--ha-bar-height:0.00") || !strings.Contains(html, "--ha-bar-height:1.00") {
+		t.Errorf("html = %q, want the projected maximum to define the top of the scale", html)
+	}
+	if !strings.Contains(html, "--ha-bar-height:0.10") {
+		t.Errorf("html = %q, want the measured values scaled against the projected maximum", html)
 	}
 }

@@ -345,3 +345,32 @@ func (c *Client) FetchSunState(ctx context.Context) (SunState, error) {
 	}
 	return state, nil
 }
+
+// SolarNoon returns the midpoint between the sunrise and the sunset that
+// bracket one continuous day, derived from sun.sun's next_rising /
+// next_setting pair. It is the anchor the bars chart centres its 24-hour
+// window on (see BuildCenteredDayBuckets), so the daylight band lands in
+// the middle of the chart at every hour of the day.
+//
+// The pair needs untangling first, because "next" is relative to now:
+//
+//   - Sun below the horizon (night, either side of midnight): the next
+//     rising comes before the next setting, so the two already bracket the
+//     same upcoming day and their midpoint is that day's solar noon.
+//   - Sun above the horizon (daytime): the next setting ends the day that
+//     the PREVIOUS rising started, and next_rising is already tomorrow's.
+//     Stepping that rising back one day recovers this day's pair.
+//
+// ok is false when either attribute is missing, which callers should treat
+// as "no sun data" and fall back to a plain calendar-day window rather than
+// trusting a zero time.
+func (s SunState) SolarNoon() (noon time.Time, ok bool) {
+	if s.NextRising.IsZero() || s.NextSetting.IsZero() {
+		return time.Time{}, false
+	}
+	rise, set := s.NextRising, s.NextSetting
+	if set.Before(rise) {
+		rise = rise.Add(-24 * time.Hour)
+	}
+	return rise.Add(set.Sub(rise) / 2), true
+}

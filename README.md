@@ -55,8 +55,10 @@ take priority over `config.yml`, so the two approaches can be mixed if you want.
 - `HA_URL` / `HA_TOKEN` — reachable from *this container* (e.g. the HA container/host's address
   on your Docker/LAN network).
 - `PUBLIC_URL` — reachable from *your browser* (see step 2).
-- `TEMPERATURE_CHART_STYLE` — `sparkline` (default, matches the SERVER STATS widget style) or
-  `bars` (matches the built-in WEATHER widget's bar-chart style).
+- `TEMPERATURE_CHART_STYLE` — `bars` (default, a direct port of the built-in WEATHER widget's
+  bar chart: same bar geometry, same daylight band, same hover behaviour — the current bucket's
+  temperature is shown at rest, and hovering any other column reveals its temperature and time)
+  or `sparkline` (matches the SERVER STATS widget style).
 - `SENSORS_CONTACT_DEVICE_CLASSES` / `SENSORS_MOTION_DEVICE_CLASSES` — comma-separated HA
   `binary_sensor` device classes, if your setup uses ones not covered by the defaults.
 
@@ -115,7 +117,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `TEMPERATURE_RANGE` | `temperature.range` | `24h` | Historical window for the temperature chart, a Go duration (`h`/`m`/`s` units only) |
 | `TEMPERATURE_MAX_POINTS` | `temperature.max_points` | `60` | Points per room's temperature series (resolution) |
 | `TEMPERATURE_CHART_HEIGHT` | `temperature.chart_height` | `130` | Base minimum room-card height in px — cards with more to show (lights, occupancy, contact) grow taller automatically |
-| `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `sparkline` | `sparkline` or `bars` |
+| `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `bars` | `bars` (WEATHER-widget bar chart) or `sparkline` |
 | `LIVE_POLL_INTERVAL` | `live.poll_interval` | `10s` | How often the browser polls `/live.json` while the tab is open |
 | `LIVE_PAUSE_WHEN_HIDDEN` | `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
 | `SENSORS_CONTACT_DEVICE_CLASSES` | `sensors.contact_device_classes` | `door,window,garage_door,opening` | Comma-separated `binary_sensor` device classes shown as Open/Closed |

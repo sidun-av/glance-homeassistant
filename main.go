@@ -90,18 +90,20 @@ func sparseAxisLabels(timestamps []time.Time) []render.AxisLabel {
 	return labels
 }
 
-// barColumnTimeLabels picks the sparse per-column time labels for the
-// "bars" chart style: every 4th of the (fixed, barColumnsCount-long)
-// timestamps slice, mirroring Weather's own hardcoded nth-child(3,7,11)
-// sparse pattern for its 12 columns — a fixed small column count doesn't
-// need the denser sparkline's dyadic-tier progressive-reveal system, a
-// flat "every Nth" is exactly what the reference implementation does.
+// barColumnTimeLabels builds the per-column time labels for the "bars"
+// chart style — one for EVERY column, not a sparse subset, exactly like
+// Glance's Weather widget (its template does `index $.TimeLabels $i` for
+// all twelve columns). Which of them are visible at rest is purely a CSS
+// decision — :nth-child(3)/(7)/(11), see chartCSS — and the rest are
+// revealed when you hover their column, so they all have to be present in
+// the DOM. The "3pm" layout is Go's own 12-hour form ("6am", "12am",
+// "10pm"), matching what Weather prints; the abbreviated "6a"/"5p" form
+// this used to emit was a space-saving invention that only made the chart
+// look unlike the widget it's modelled on.
 func barColumnTimeLabels(timestamps []time.Time) []string {
 	labels := make([]string, len(timestamps))
 	for i := range timestamps {
-		if i%4 == 0 {
-			labels[i] = strings.TrimSuffix(timestamps[i].Format("3pm"), "m")
-		}
+		labels[i] = timestamps[i].Format("3pm")
 	}
 	return labels
 }
@@ -189,6 +191,45 @@ const sparklineNominalHeight = 60
 // this widget is matching, not a data-resolution choice.
 const barColumnsCount = 12
 
+// barsWindow lays out the bars chart's 24-hour window: barColumnsCount
+// buckets centred on solar noon, so the daylight band sits in the middle of
+// the chart whatever the hour, season or latitude (see
+// hass.BuildCenteredDayBuckets). When sun.sun is unreachable or missing its
+// next_rising/next_setting attributes there is nothing to centre on, so the
+// window falls back to local midday — which produces exactly a local
+// calendar day, the same window this widget used before, just in clean
+// even-hour buckets.
+func barsWindow(now time.Time, sun hass.SunState) (timestamps []time.Time, currentIndex int, windowStart time.Time) {
+	center, ok := sun.SolarNoon()
+	if !ok {
+		center = time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	}
+	return hass.BuildCenteredDayBuckets(now, center, barColumnsCount)
+}
+
+// projectYesterday fills the bars chart's not-yet-happened buckets — every
+// index after currentIdx — with the same room's temperature at the same
+// clock time one day earlier, leaving measured buckets untouched. Indices
+// with no reading that far back stay NaN and render as an empty column.
+//
+// It exists because of a constraint the Weather widget this chart is
+// modelled on does not have. Weather asks Open-Meteo for a forecast
+// (forecast_days=1, hourly=temperature_2m), so all twelve of its columns
+// always have a value. A room thermometer has only history, and the window
+// is centred on solar noon so that the daylight band sits in the middle —
+// which necessarily puts half the window in the future. Left alone that
+// showed a chart that was mostly blank in the morning. Yesterday at the
+// same hour is the closest honest stand-in for a forecast; the renderer
+// draws these columns faded (ha-bar-projected) so they never read as
+// measurements.
+func projectYesterday(values, dayEarlier []float64, currentIdx int) {
+	for i := currentIdx + 1; i < len(values); i++ {
+		if i < len(dayEarlier) {
+			values[i] = dayEarlier[i]
+		}
+	}
+}
+
 func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -206,24 +247,52 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 
 	pollInterval, _ := time.ParseDuration(a.cfg.Live.PollInterval)
 	now := time.Now()
-	// A fixed local-calendar-day window (not the old "last N hours ending
-	// now" rolling one) — see BuildDayTimestamps' doc comment for why:
-	// a rolling window can't generally center a daytime band, a fixed
-	// full-day one naturally does. Temperature.Range no longer drives the
-	// window's length (it's always a full day); it's effectively
+
+	// sun.sun's current state is fetched FIRST, before the chart window is
+	// laid out, because for the bars style the window is derived from it:
+	// solar noon is the window's centre, which is what keeps the daylight
+	// band in the middle of the chart at every hour of the day (see
+	// hass.BuildCenteredDayBuckets). It is also still used further down to
+	// extend the band past "now" into the rest of the day. A fetch failure
+	// degrades gracefully at both sites — the window falls back to a plain
+	// local calendar day, and the future part of the band is simply left
+	// dark; the widget never fails over it.
+	sunState, err := a.client.FetchSunState(ctx)
+	if err != nil {
+		log.Printf("fetch sun state: %v", err)
+	}
+
+	// A fixed 24-hour window, not the old "last N hours ending now" rolling
+	// one: a rolling window pins the daytime band to the trailing edge,
+	// where it can't read as a day at all. Temperature.Range no longer
+	// drives the window's length (it's always 24h); it's effectively
 	// vestigial now and a candidate for removal in a follow-up.
 	//
-	// Point count depends on chart_style: "bars" always uses a fixed 12
-	// (see barColumnsCount's doc comment — matching Weather's own column
-	// count, not a data-resolution choice), sparkline keeps the
-	// configurable, denser temperature.max_points.
-	maxPoints := a.cfg.Temperature.MaxPoints
+	// The two chart styles want different windows. "bars" uses a fixed 12
+	// buckets (see barColumnsCount) centred on solar noon, so the band sits
+	// dead centre and the time axis follows from wherever the window landed.
+	// "sparkline" keeps the denser, configurable temperature.max_points over
+	// a plain calendar day, along with its own separate axis-label row.
+	var (
+		timestamps  []time.Time
+		currentIdx  int
+		windowStart time.Time
+		axisLabels  []render.AxisLabel
+	)
 	if a.cfg.Temperature.ChartStyle == "bars" {
-		maxPoints = barColumnsCount
+		timestamps, currentIdx, windowStart = barsWindow(now, sunState)
+	} else {
+		timestamps, currentIdx = hass.BuildDayTimestamps(now, a.cfg.Temperature.MaxPoints)
+		windowStart = timestamps[0]
+		axisLabels = sparseAxisLabels(timestamps)
 	}
-	timestamps, currentIdx := hass.BuildDayTimestamps(now, maxPoints)
-	dayStart := timestamps[0]
-	axisLabels := sparseAxisLabels(timestamps)
+
+	// dayEarlier is timestamps shifted back exactly one day — the sample
+	// points projectYesterday reads for buckets that haven't happened yet.
+	dayEarlier := make([]time.Time, len(timestamps))
+	for i, ts := range timestamps {
+		dayEarlier[i] = ts.Add(-24 * time.Hour)
+	}
 
 	// nanOutFuture blanks every index after currentIdx — those timestamps
 	// are later today and haven't happened yet, so StepForwardFill's
@@ -242,7 +311,16 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	history, err := a.client.FetchHistory(ctx, allTempIDs, dayStart, now)
+	// The bars chart also needs the 24 hours BEFORE the window opens, to
+	// project into the buckets that haven't happened yet (see
+	// projectYesterday). The sparkline style has no such columns — it just
+	// stops at "now" — so it doesn't pay for the extra day.
+	historyStart := windowStart
+	if a.cfg.Temperature.ChartStyle == "bars" {
+		historyStart = windowStart.Add(-24 * time.Hour)
+	}
+
+	history, err := a.client.FetchHistory(ctx, allTempIDs, historyStart, now)
 	if err != nil {
 		log.Printf("fetch history: %v", err)
 		history = map[string][]hass.HistoryPoint{}
@@ -253,7 +331,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	// StepForwardFill on an empty slice returns all-NaN, and NaN >= 0.5 is
 	// false in Go, so isDaytime ends up all-false and BarChart simply
 	// omits the daytime band rather than the whole widget failing.
-	sunPoints, err := a.client.FetchSunHistory(ctx, dayStart, now)
+	sunPoints, err := a.client.FetchSunHistory(ctx, windowStart, now)
 	if err != nil {
 		log.Printf("fetch sun history: %v", err)
 		sunPoints = nil
@@ -266,26 +344,21 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// History only has data up to "now", so isDaytime above is correct
-	// for i<=currentIdx but leaves every later-today bucket false
+	// for i<=currentIdx but leaves every later bucket in the window false
 	// (nanOutFuture blanked them). Unlike temperature, sunrise/sunset for
-	// the rest of today is fully deterministic — extend isDaytime past
+	// the rest of the window is fully deterministic — extend isDaytime past
 	// currentIdx using sun.sun's own next_rising/next_setting rather than
-	// leaving a false gap. A fetch failure just leaves the future portion
-	// false (same graceful degradation as the history fetch above) —
-	// never breaks the widget.
-	sunState, err := a.client.FetchSunState(ctx)
-	if err != nil {
-		log.Printf("fetch sun state: %v", err)
-	} else {
-		for i := currentIdx + 1; i < len(timestamps); i++ {
-			t := timestamps[i]
-			switch sunState.State {
-			case "above_horizon":
-				isDaytime[i] = sunState.NextSetting.IsZero() || t.Before(sunState.NextSetting)
-			case "below_horizon":
-				isDaytime[i] = !sunState.NextRising.IsZero() && !sunState.NextSetting.IsZero() &&
-					!t.Before(sunState.NextRising) && t.Before(sunState.NextSetting)
-			}
+	// leaving a false gap. An earlier fetch failure just leaves the future
+	// portion false (State is "" and neither branch runs), the same
+	// graceful degradation as the history fetch above.
+	for i := currentIdx + 1; i < len(timestamps); i++ {
+		t := timestamps[i]
+		switch sunState.State {
+		case "above_horizon":
+			isDaytime[i] = sunState.NextSetting.IsZero() || t.Before(sunState.NextSetting)
+		case "below_horizon":
+			isDaytime[i] = !sunState.NextRising.IsZero() && !sunState.NextSetting.IsZero() &&
+				!t.Before(sunState.NextRising) && t.Before(sunState.NextSetting)
 		}
 	}
 
@@ -296,7 +369,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		if card.Temperature != nil {
 			view.HasTemperature = true
 
-			var series [][]float64
+			var series, yesterday [][]float64
 			for _, id := range card.Temperature.EntityIDs {
 				points, ok := history[id]
 				if !ok || len(points) == 0 {
@@ -305,14 +378,15 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 				filled := hass.StepForwardFill(points, timestamps)
 				nanOutFuture(filled)
 				series = append(series, filled)
+				yesterday = append(yesterday, hass.StepForwardFillStrict(points, dayEarlier))
 			}
 			avg := hass.AverageSeries(series)
 			if len(avg) == 0 || currentIdx >= len(avg) || math.IsNaN(avg[currentIdx]) {
 				view.TempNoData = true
 			} else {
-				view.TempValue = fmt.Sprintf("%.1f°", avg[currentIdx])
 				if a.cfg.Temperature.ChartStyle == "bars" {
-					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentLabel: view.TempValue, CurrentIndex: currentIdx, TimeLabels: barColumnTimeLabels(timestamps)}
+					projectYesterday(avg, hass.AverageSeries(yesterday), currentIdx)
+					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentIndex: currentIdx, TimeLabels: barColumnTimeLabels(timestamps)}
 					view.ChartHTML = render.BarColumns(barData, "ha-bar-cols")
 					view.AxisRowHTML = "" // bars renders its own per-column time labels, no separate axis row
 				} else {

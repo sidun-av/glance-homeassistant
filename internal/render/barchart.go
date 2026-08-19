@@ -12,74 +12,88 @@ import (
 type BarChartData struct {
 	// Values may contain NaN for timestamps with no data yet (e.g. hours
 	// later than "now" within a fixed calendar-day window) — those indices
-	// render an empty column (no bar), are excluded from min/max, and are
-	// never treated as CurrentIndex.
+	// render an empty column (no bar, no value label), are excluded from
+	// min/max scaling, and are never treated as CurrentIndex.
 	Values []float64
 	// IsDaytime is parallel to Values. A shorter or nil slice is treated as
 	// "no daytime data" rather than an error.
 	IsDaytime []bool
-	// CurrentLabel is rendered on the CurrentIndex column. Also decides
-	// whether the min/max labels are suppressed for that same column (see
-	// BarColumns' doc comment). Ignored if CurrentIndex is out of range or
-	// CurrentLabel is "".
-	CurrentLabel string
-	// CurrentIndex is which element of Values is "now". A negative or
-	// out-of-range CurrentIndex disables the current-column emphasis
-	// entirely.
+	// CurrentIndex is which element of Values is "now" — that column gets
+	// the ha-bar-col-current class, which is what makes its bar wide and
+	// bright and its value label visible without a hover (see styleBlock).
+	// A negative or out-of-range CurrentIndex disables the current-column
+	// emphasis entirely.
+	//
+	// It also splits the chart in two: everything after it is a bucket that
+	// has not happened yet, so any value there is a projection rather than a
+	// measurement (the caller fills those from the same clock time 24 hours
+	// earlier — see projectYesterday in main.go) and is drawn faded, via
+	// ha-bar-projected. Weather has no equivalent because its future columns
+	// come from a real forecast; a room thermometer has no forecast, and
+	// yesterday at the same hour is the closest honest stand-in.
 	CurrentIndex int
-	// TimeLabels is parallel to Values — a "" entry means that column shows
-	// no time label (this chart has few enough columns, unlike the old
-	// dense sparkline, that a caller can simply choose which indices get a
-	// label directly, e.g. every 4th of 12 — mirroring Weather's own
-	// hardcoded nth-child sparse pattern rather than reusing the denser
-	// chart's dyadic-tier reveal system, which solved a different problem
-	// this fixed 12-column layout doesn't have). A shorter or nil slice
-	// means no column gets a time label.
+	// TimeLabels is parallel to Values. Unlike the pre-Weather-port version
+	// of this chart, a label is expected for EVERY column, not a sparse
+	// subset: which ones are visible at rest is a pure CSS concern
+	// (:nth-child(3)/(7)/(11), mirroring Weather), and the rest are revealed
+	// on hover — so they all have to actually be in the DOM. A shorter or
+	// nil slice just leaves the remaining columns' labels empty.
 	TimeLabels []string
 }
 
 // BarColumns renders the temperature chart as a flex row of plain HTML
-// column divs — one per bucket — mirroring Glance's own built-in WEATHER
-// widget's actual technique (see internal/glance/templates/weather.html and
-// static/css/widget-weather.css in github.com/glanceapp/glance), not the
-// SVG approximation this file used to contain. The SVG version (dozens of
-// thin bars, non-uniform preserveAspectRatio scaling) read visibly worse
-// than Weather on narrow/mobile widths — a handful of wide flex columns
-// scales down cleanly where thin SVG strokes turn into noise. This repo's
-// own var(--color-*) theme variables are used throughout instead of
-// Glance's internal hsl(var(--ths)) ones, since this widget (being external
-// to Glance's core) only has access to the former.
+// column divs — one per bucket — as a direct port of Glance's own built-in
+// WEATHER widget (internal/glance/templates/weather.html and
+// static/css/widget-weather.css in github.com/glanceapp/glance). Both the
+// markup shape and the CSS in styleBlock deliberately mirror it
+// declaration-for-declaration, because the ask was literally "make this
+// look like the Weather widget" and every earlier attempt to approximate it
+// from memory drifted (tiny 7px labels, a flat opacity-based bar, extra
+// min/max labels Weather doesn't have, an off-by-two time-label position).
 //
-// The daylight highlight is NOT rendered per-column (a per-column
-// absolutely-positioned div can only fill that one column's own box, and
-// .ha-bar-cols' flex `gap` between columns would then show up as a visible
-// unhighlighted seam at every boundary within an otherwise-contiguous
-// daytime stretch). Instead, contiguous runs of daytime columns are
-// collapsed into one absolutely-positioned div per run (see daylightRuns),
-// each spanning the full run's width — including the gaps between its
-// columns — via left/right percentages of the whole .ha-bar-cols container
-// computed from the run's start/end column index out of the total column
-// count. These run divs are emitted before any .ha-bar-col div so they
-// paint underneath the columns (both are position:relative/absolute, i.e.
-// "positioned" elements painted in DOM order).
+// Per-column structure, matching weather.html's range body exactly:
 //
-// Every column, whether or not it has a NaN value, gets the exact same
-// three child divs in the same order: a value-label div (only
-// current/min/max buckets get real text — content is simply "" for every
-// other column, so no separate hover-reveal system is needed the way
-// Weather's is, since Weather always populates every column's label and
-// hides most by default), a bar div whose height is driven by a CSS custom
-// property (--ha-bar-height, 0..1) rather than an inline pixel height so
-// the same column scales correctly at any card width via plain CSS, and a
-// time-label div. The time-label div is ALWAYS present (never omitted for
-// unlabeled columns) — omitting it for most columns would let
-// .ha-bar-col's `justify-content:flex-end` pack a labeled column's bar
-// higher than an unlabeled column's bar, since flex-end pins each column's
-// children as one contiguous group flush to the bottom. Content is "" for
-// unlabeled columns and it's hidden purely via the
-// ha-bar-col-time-visible CSS modifier class (see styleBlock), so every
-// column has an identical DOM shape and bars stay vertically comparable
-// across the whole row.
+//	<div class="ha-bar-col[ ha-bar-col-current]">
+//	  [<div class="ha-bar-daylight[ -sunrise][ -sunset]"></div>]
+//	  <div class="ha-bar-value[ -negative][ -projected]">22</div>
+//	  <div class="ha-bar[ ha-bar-empty][ ha-bar-projected]" style="--ha-bar-height:0.62"></div>
+//	  <div class="ha-bar-col-time">8pm</div>
+//	</div>
+//
+// The one addition to Weather's own column is ha-bar-projected, on every
+// column after CurrentIndex — see that field's doc comment. Those values
+// still take part in the min/max scaling, since they share the chart's
+// single vertical axis and would otherwise be drawn at the wrong height.
+//
+// Three things about that are worth spelling out because they reverse
+// earlier decisions in this file's history:
+//
+//   - The daylight highlight is back to being ONE DIV PER COLUMN, nested
+//     inside the column (inset:0), which is what Weather does. The previous
+//     "collapse contiguous daytime columns into one absolutely-positioned
+//     run" machinery existed only to hide the seams that .ha-bar-cols'
+//     flex `gap` left between adjacent highlighted columns. Weather has no
+//     gap at all — its columns are width:calc(100%/12) and butt up against
+//     each other — so with the gap gone the per-column divs are contiguous
+//     by construction and the run machinery has nothing left to solve.
+//
+//   - EVERY column gets a value label, not just the current/min/max ones.
+//     Weather has no notion of min/max labels; it renders all twelve values
+//     and hides them with opacity, revealing the current one always and any
+//     other on hover of its column. That's strictly more information than
+//     the old three-fixed-labels scheme and it's why the chart no longer
+//     has stray numbers floating over it.
+//
+//   - Values are rendered as absolute integers with no degree sign. The
+//     sign and the "°" are CSS ::before/::after pseudo-elements (see
+//     styleBlock), exactly as in Weather — that keeps the digits optically
+//     centered over the bar instead of the whole "-12°" string being
+//     centered, which visibly shifts the number off its own column.
+//
+// The wrapper carries --ha-bar-cols so the CSS can size each column as
+// 100%/N. Weather hardcodes /12 because its forecast is always 12 columns;
+// this widget's caller also uses 12 (see barColumnsCount in main.go) but
+// BarColumns itself stays generic over len(Values).
 func BarColumns(data BarChartData, className string) string {
 	values := data.Values
 	n := len(values)
@@ -88,27 +102,22 @@ func BarColumns(data BarChartData, className string) string {
 	}
 
 	min, max := math.NaN(), math.NaN()
-	minIdx, maxIdx := -1, -1
-	for i, v := range values {
+	for _, v := range values {
 		if math.IsNaN(v) {
 			continue
 		}
 		if math.IsNaN(min) || v < min {
-			min, minIdx = v, i
+			min = v
 		}
 		if math.IsNaN(max) || v > max {
-			max, maxIdx = v, i
+			max = v
 		}
 	}
-	haveData := minIdx != -1
 	span := max - min
-	flatSeries := !haveData || span < 1e-9
-	if flatSeries {
-		span = 1
-	}
+	flatSeries := math.IsNaN(min) || span < 1e-9
 
 	currentIdx := data.CurrentIndex
-	hasCurrent := currentIdx >= 0 && currentIdx < n && !math.IsNaN(values[currentIdx]) && data.CurrentLabel != ""
+	hasCurrent := currentIdx >= 0 && currentIdx < n && !math.IsNaN(values[currentIdx])
 
 	isDaytimeAt := func(i int) bool {
 		if i < 0 || i >= len(data.IsDaytime) {
@@ -124,91 +133,53 @@ func BarColumns(data BarChartData, className string) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<div class="%s">`, className)
-
-	for _, run := range daylightRuns(n, isDaytimeAt) {
-		left := float64(run.start) / float64(n) * 100
-		right := float64(n-run.end-1) / float64(n) * 100
-		fmt.Fprintf(&b, `<div class="ha-bar-daylight" style="left:%.4f%%;right:%.4f%%"></div>`, left, right)
-	}
+	fmt.Fprintf(&b, `<div class="%s" style="--ha-bar-cols:%d">`, className, n)
 
 	for i, v := range values {
-		current := hasCurrent && i == currentIdx
-		fmt.Fprintf(&b, `<div class="ha-bar-col" data-current="%t">`, current)
+		colClass := "ha-bar-col"
+		if hasCurrent && i == currentIdx {
+			colClass += " ha-bar-col-current"
+		}
+		fmt.Fprintf(&b, `<div class="%s">`, colClass)
+
+		if isDaytimeAt(i) {
+			dayClass := "ha-bar-daylight"
+			if !isDaytimeAt(i - 1) {
+				dayClass += " ha-bar-daylight-sunrise"
+			}
+			if !isDaytimeAt(i + 1) {
+				dayClass += " ha-bar-daylight-sunset"
+			}
+			fmt.Fprintf(&b, `<div class="%s"></div>`, dayClass)
+		}
 
 		if math.IsNaN(v) {
-			b.WriteString(`<div class="ha-bar-value"></div><div class="ha-bar ha-bar-empty"></div>`)
+			// Same three children as every other column so the flex
+			// column's justify-content:end packs identically — just with
+			// no number and an invisible bar.
+			b.WriteString(`<div class="ha-bar-value"></div><div class="ha-bar ha-bar-empty" style="--ha-bar-height:0"></div>`)
 		} else {
-			label := ""
 			valueClass := "ha-bar-value"
-			switch {
-			case current:
-				label = data.CurrentLabel
-				valueClass += " ha-bar-value-current"
-			case !flatSeries && i == minIdx:
-				label = fmt.Sprintf("%.1f°", v)
-			case !flatSeries && i == maxIdx:
-				label = fmt.Sprintf("%.1f°", v)
+			if v < 0 {
+				valueClass += " ha-bar-value-negative"
 			}
-			fmt.Fprintf(&b, `<div class="%s">%s</div>`, valueClass, html.EscapeString(label))
+			barClass := "ha-bar"
+			if hasCurrent && i > currentIdx {
+				valueClass += " ha-bar-value-projected"
+				barClass += " ha-bar-projected"
+			}
+			fmt.Fprintf(&b, `<div class="%s">%.0f</div>`, valueClass, math.Abs(v))
 
 			height := 0.5
 			if !flatSeries {
 				height = (v - min) / span
 			}
-			barClass := "ha-bar"
-			if current {
-				barClass += " ha-bar-current"
-			}
-			fmt.Fprintf(&b, `<div class="%s" style="--ha-bar-height:%.3f"></div>`, barClass, height)
+			fmt.Fprintf(&b, `<div class="%s" style="--ha-bar-height:%.2f"></div>`, barClass, height)
 		}
 
-		// Always emitted (see doc comment above) — only its visibility is
-		// conditional, via CSS, never its presence in the DOM.
-		tl := timeLabelAt(i)
-		timeClass := "ha-bar-col-time"
-		if tl != "" {
-			timeClass += " ha-bar-col-time-visible"
-		}
-		fmt.Fprintf(&b, `<div class="%s">%s</div>`, timeClass, html.EscapeString(tl))
-
+		fmt.Fprintf(&b, `<div class="ha-bar-col-time">%s</div>`, html.EscapeString(timeLabelAt(i)))
 		b.WriteString(`</div>`)
 	}
 	b.WriteString(`</div>`)
 	return b.String()
-}
-
-// daylightRun is one contiguous stretch of daytime columns, described as an
-// inclusive [start,end] index range out of the chart's total column count.
-type daylightRun struct {
-	start, end int
-}
-
-// daylightRuns walks n columns and collapses consecutive daytime ones into
-// runs, so the caller can render one highlight div per run (spanning the
-// gaps between that run's columns) instead of one per column (which would
-// leave gaps at every column boundary — see BarColumns' doc comment).
-func daylightRuns(n int, isDaytimeAt func(int) bool) []daylightRun {
-	var runs []daylightRun
-	inRun := false
-	var cur daylightRun
-	for i := 0; i < n; i++ {
-		if isDaytimeAt(i) {
-			if inRun {
-				cur.end = i
-			} else {
-				cur = daylightRun{start: i, end: i}
-				inRun = true
-			}
-			continue
-		}
-		if inRun {
-			runs = append(runs, cur)
-			inRun = false
-		}
-	}
-	if inRun {
-		runs = append(runs, cur)
-	}
-	return runs
 }

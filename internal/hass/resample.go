@@ -109,3 +109,105 @@ func AverageSeries(series [][]float64) []float64 {
 	}
 	return out
 }
+
+// BuildCenteredDayBuckets lays out `buckets` equal-length buckets across a
+// 24-hour window centred on `center` (in practice solar noon — see
+// SunState.SolarNoon), and returns one sample timestamp per bucket, the
+// index of the bucket containing now, and the window's start.
+//
+// This replaces BuildDayTimestamps for the bars chart style. A fixed local
+// calendar day only *happens* to put the daylight band near the middle,
+// and only at latitudes and seasons where sunrise and sunset sit roughly
+// symmetrically around midday — in Ireland in December, or anywhere far
+// north in summer, it drifts noticeably off-centre, and the band's
+// position wanders through the year for no reason a reader can see.
+// Anchoring the window on solar noon instead puts the band dead centre by
+// construction, every day of the year, and lets the time axis fall out of
+// the window rather than the other way round.
+//
+// Worth being explicit about, since this widget otherwise mirrors it:
+// Glance's own Weather widget does NOT do this. It hardcodes twelve
+// two-hour buckets across the local calendar day and twelve matching label
+// strings (`timeLabels12h` in widget-weather.go), and its band lands
+// wherever sunrise/sunset happen to fall. This is a deliberate departure.
+//
+// Three details:
+//
+//   - The centre is snapped to the nearest bucket boundary counted from
+//     local midnight before the window is derived from it, so every bucket
+//     edge lands on a whole clock hour (an even one, for the usual twelve
+//     buckets). Without that, a 13:37 solar noon would produce an axis
+//     reading 3:37am / 5:37am / … instead of 4am / 6am / ….
+//
+//   - The window is then slid by whole days until it contains now. Solar
+//     noon is a property of a date, and the date whose noon-centred window
+//     covers "now" is not always today's: at 23:00 the window centred on
+//     tomorrow's noon has not started yet, and the right one is the one
+//     centred on today's.
+//
+//   - Each bucket's sample timestamp is its END, matching how Weather
+//     labels its columns (its bucket for hours 0–1 is labelled "2am"). The
+//     bucket containing now therefore samples slightly in the future, which
+//     is exactly what makes it show the newest known reading once
+//     StepForwardFill carries the last value forward.
+func BuildCenteredDayBuckets(now, center time.Time, buckets int) (timestamps []time.Time, currentIndex int, windowStart time.Time) {
+	if buckets < 1 {
+		buckets = 1
+	}
+	loc := now.Location()
+	center = center.In(loc)
+	bucketLen := 24 * time.Hour / time.Duration(buckets)
+
+	midnight := time.Date(center.Year(), center.Month(), center.Day(), 0, 0, 0, 0, loc)
+	steps := math.Round(float64(center.Sub(midnight)) / float64(bucketLen))
+	windowStart = midnight.Add(time.Duration(steps) * bucketLen).Add(-12 * time.Hour)
+
+	days := math.Floor(float64(now.Sub(windowStart)) / float64(24*time.Hour))
+	windowStart = windowStart.Add(time.Duration(days) * 24 * time.Hour)
+
+	timestamps = make([]time.Time, buckets)
+	for i := range timestamps {
+		timestamps[i] = windowStart.Add(bucketLen * time.Duration(i+1))
+	}
+
+	currentIndex = int(now.Sub(windowStart) / bucketLen)
+	if currentIndex < 0 {
+		currentIndex = 0
+	}
+	if currentIndex > buckets-1 {
+		currentIndex = buckets - 1
+	}
+	return timestamps, currentIndex, windowStart
+}
+
+// StepForwardFillStrict is StepForwardFill without its "fall back to the
+// first known point" behaviour: a timestamp earlier than anything in
+// `points` comes back NaN instead of borrowing the earliest reading.
+//
+// The difference matters for the bars chart's projected columns, which
+// sample 24 hours behind each not-yet-happened bucket to stand in for the
+// reading that hasn't been taken yet (see projectYesterday in main.go).
+// StepForwardFill's fallback is right for the leading edge of a live
+// window — an entity whose first ever state landed a few minutes into it
+// should not leave a hole — but wrong here: for a sensor that has only
+// existed for an hour it would paint a full, flat, confident-looking row of
+// "yesterday" out of a single reading. There simply is no yesterday for
+// those buckets, and NaN says so.
+func StepForwardFillStrict(points []HistoryPoint, timestamps []time.Time) []float64 {
+	values := StepForwardFill(points, timestamps)
+	if len(points) == 0 {
+		return values
+	}
+	earliest := points[0].Time
+	for _, p := range points[1:] {
+		if p.Time.Before(earliest) {
+			earliest = p.Time
+		}
+	}
+	for i, ts := range timestamps {
+		if ts.Before(earliest) {
+			values[i] = math.NaN()
+		}
+	}
+	return values
+}
