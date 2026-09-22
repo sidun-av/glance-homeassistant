@@ -406,6 +406,12 @@ var mediaActions = map[string]bool{"media_play_pause": true, "media_next_track":
 // the listed media_player services are allowed, on media_player.* ids.
 func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST {entity_id, action}", http.StatusMethodNotAllowed)
 		return
@@ -425,10 +431,11 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	if err := a.client.CallService(ctx, "media_player", req.Action, req.EntityID); err != nil {
-		log.Printf("media %s %s: %v", req.Action, req.EntityID, err)
+		log.Printf("media %s %s from %s: %v", req.Action, req.EntityID, r.RemoteAddr, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	log.Printf("media %s %s from %s: ok", req.Action, req.EntityID, r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }
 
