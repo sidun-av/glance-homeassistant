@@ -180,9 +180,21 @@ const floorplanCSS = `
 	  background:radial-gradient(circle,rgba(255,225,170,.55) 0%,rgba(240,196,121,.28) 25%,rgba(240,196,121,.08) 55%,transparent 72%)}
 	.ha-fp-icons>.ha-device[data-center="true"][data-effect="fan"]::before{background:radial-gradient(circle,rgba(170,200,255,.5) 0%,rgba(122,162,247,.2) 30%,transparent 72%)}
 	.ha-fp-icons>.ha-device[data-center="true"][data-effect="heat"]::before{background:radial-gradient(circle,rgba(255,200,140,.55) 0%,rgba(255,150,70,.22) 30%,transparent 72%)}
-	.ha-fp-icons>.ha-device[data-center="true"][data-on="true"][data-effect]:not([data-effect=""])::before{transform:translate(-50%,-50%) scale(1)}
+	.ha-fp-icons>.ha-device[data-center="true"][data-on="true"]:is([data-effect="fan"],[data-effect="heat"])::before{transform:translate(-50%,-50%) scale(1)}
 	.ha-fp-icons>.ha-device[data-center="true"][data-effect]::after{background:repeating-radial-gradient(circle,transparent 0 9px,var(--wave) 11px 13px,transparent 15px 24px)}
-	.ha-fp-icons>.ha-device[data-center="true"][data-on="true"][data-effect]:not([data-effect=""])::after{animation:ha-fp-ripple 2.2s linear infinite}
+	.ha-fp-icons>.ha-device[data-center="true"][data-on="true"]:is([data-effect="fan"],[data-effect="heat"])::after{animation:ha-fp-ripple 2.2s linear infinite}
+	/* Music: a playing media player sends notes drifting up and fading,
+	   no beam. ::before and ::after are the two notes, staggered. */
+	.ha-fp-icons>.ha-device[data-effect="music"]::before,.ha-fp-icons>.ha-device[data-effect="music"]::after{
+	  clip-path:none;mask:none;-webkit-mask:none;background:none;width:auto;height:auto;border-radius:0;
+	  left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;line-height:1;color:var(--color-primary);
+	  transform-origin:50% 50%;transition:none}
+	.ha-fp-icons>.ha-device[data-effect="music"]::before{content:"♪"}
+	.ha-fp-icons>.ha-device[data-effect="music"]::after{content:"♫";font-size:11px}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="music"]::before{animation:ha-fp-note 2.4s ease-out infinite}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="music"]::after{animation:ha-fp-note 2.4s ease-out 1.2s infinite}
+	@keyframes ha-fp-note{0%{opacity:0;transform:translate(-50%,-50%)}15%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + 14px),calc(-50% - 44px)) rotate(12deg)}}
+	.ha-fp-icons .ha-device[data-on="true"][data-effect="music"] svg path{fill:var(--color-primary)}
 	@keyframes ha-fp-ripple{from{opacity:.9;transform:translate(-50%,-50%) scale(.35)}to{opacity:0;transform:translate(-50%,-50%) scale(1.05)}}
 	.ha-fp-placed{grid-template-columns:none;grid-template-rows:none}
 	.ha-fp-edit{position:absolute;top:0;right:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
@@ -209,8 +221,8 @@ const floorplanCSS = `
 	.ha-fp-icons .ha-device[data-effect="fan"]::after{--wave:rgba(170,200,255,.22)}
 	.ha-fp-icons .ha-device[data-effect="heat"]::before{background:linear-gradient(180deg,rgba(255,200,140,.65) 0%,rgba(255,150,70,.32) 20%,rgba(255,150,70,.1) 55%,transparent 100%)}
 	.ha-fp-icons .ha-device[data-effect="heat"]::after{--wave:rgba(255,200,140,.22)}
-	.ha-fp-icons .ha-device[data-on="true"][data-effect]:not([data-effect=""])::before{opacity:1;transform:translateX(-50%) rotate(var(--dir)) scaleY(1)}
-	.ha-fp-icons .ha-device[data-on="true"][data-effect]:not([data-effect=""])::after{opacity:1;transform:translateX(-50%) rotate(var(--dir)) scaleY(1);animation:ha-fp-wave 1.6s linear infinite}
+	.ha-fp-icons .ha-device[data-on="true"]:is([data-effect="fan"],[data-effect="heat"])::before{opacity:1;transform:translateX(-50%) rotate(var(--dir)) scaleY(1)}
+	.ha-fp-icons .ha-device[data-on="true"]:is([data-effect="fan"],[data-effect="heat"])::after{opacity:1;transform:translateX(-50%) rotate(var(--dir)) scaleY(1);animation:ha-fp-wave 1.6s linear infinite}
 	.ha-fp-icons .ha-device svg path{fill:var(--color-text-subdue);opacity:.35;transition:fill .2s,opacity .2s}
 	.ha-fp-icons .ha-device[data-on="true"] svg path{fill:var(--color-text-highlight);opacity:1}
 	.ha-fp-icons .ha-device[data-on="true"][data-effect="fan"] svg path{fill:#7aa2f7}
@@ -319,7 +331,7 @@ func roomTiles(r RoomCardView) []string {
 func beamReach(r RoomCardView) float64 {
 	n := len(r.Lights)
 	for _, d := range r.Devices {
-		if d.Effect != "" {
+		if d.Effect == "fan" || d.Effect == "heat" {
 			n++
 		}
 	}

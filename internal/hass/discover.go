@@ -23,8 +23,9 @@ type SensorEntity struct {
 
 // Device is any non-light, non-sensor entity worth a tile on the map: a
 // fan, a climate unit, a media player, a vacuum, ... Effect says what it
-// pushes into the room while On: "fan" (cool air), "heat" (warm air) or
-// "" (nothing animated).
+// pushes into the room while On: "fan" (cool air), "heat" (warm air),
+// "music" (notes drifting up from a playing media player) or "" (nothing
+// animated).
 type Device struct {
 	EntityID string
 	Name     string
@@ -87,7 +88,7 @@ func DeviceEffect(state EntityState) (on bool, effect string) {
 	case "vacuum":
 		return state.State == "cleaning" || state.State == "returning", ""
 	case "media_player":
-		return state.State == "playing", ""
+		return state.State == "playing", "music"
 	}
 	return state.State == "on", ""
 }

@@ -53,7 +53,9 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
   players, vacuums, covers, locks — real MDI icons per domain, or the entity's own `mdi:` icon
   when it is one we ship): a running `fan`, or a `climate` unit that is cooling/fanning, blows a
   blue stream with moving waves and the fan icon spins; a heating `climate`/`water_heater` blows an
-  orange one. Other devices just light up while active (playing, cleaning, open, unlocked, on).
+  orange one; a playing media player sends notes drifting up. A source placed in a room's centre
+  cell glows or ripples all around instead of casting a beam. Other devices just light up while
+  active (cleaning, open, unlocked, on).
   `switch` is off by default because most switches are a light's second channel or a config
   toggle — add it to `devices.domains` and prune with `devices.exclude` if you want them.
 - A running figure per motion/occupancy sensor (accent-coloured while motion is detected, faint

@@ -226,7 +226,7 @@ func TestBuildModel_DevicesByDomainWithEffects(t *testing.T) {
 		"fan.desk":           {true, "fan"},
 		"climate.ac":         {true, "heat"},
 		"switch.heater_plug": {false, ""},
-		"media_player.tv":    {true, ""},
+		"media_player.tv":    {true, "music"},
 	}
 	if len(card.Devices) != len(want) {
 		t.Fatalf("devices = %+v, want %d (child_lock excluded, unavailable vacuum skipped)", card.Devices, len(want))

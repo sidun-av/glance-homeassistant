@@ -186,9 +186,9 @@ func TestRenderFloorplanRoom_OccupancyIsOutlineOnly(t *testing.T) {
 }
 
 func TestRenderFloorplanRoom_ReachShortensWithSources(t *testing.T) {
-	r := RoomCardView{Room: "R", Lights: []LightView{{EntityID: "a"}, {EntityID: "b"}}, Devices: []DeviceView{{EntityID: "m", Effect: ""}}}
+	r := RoomCardView{Room: "R", Lights: []LightView{{EntityID: "a"}, {EntityID: "b"}}, Devices: []DeviceView{{EntityID: "m", Effect: "music"}}}
 	if !strings.Contains(renderFloorplanRoom("k", r), `style="--reach:0.70"`) {
-		t.Error("two lights + a speaker → reach 0.7 (speaker casts nothing)")
+		t.Error("two lights + a speaker → reach 0.7 (music casts no beam)")
 	}
 	r.Lights = append(r.Lights, LightView{EntityID: "c"})
 	if !strings.Contains(renderFloorplanRoom("k", r), `style="--reach:0.55"`) {
