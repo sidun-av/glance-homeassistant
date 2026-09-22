@@ -33,16 +33,23 @@ var accentPalette = []string{"#a9c2f7", "#f0a6c8", "#8fd3a0", "#f5c26b", "#c9a7f
 func AccentFor(i int) string { return accentPalette[i%len(accentPalette)] }
 
 const nowPlayingCSS = `
-	.ha-fp-layout{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch}
+	.ha-fp-layout{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;container-type:inline-size}
+	@container (max-width:700px){.ha-np-row{flex:none}}
 	.ha-fp-layout>.ha-floorplan{flex:0 1 auto}
-	.ha-np{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:8px}
+	.ha-np{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:8px;container-type:inline-size}
+	/* Wrapped under the map (narrow widget): rows take their natural
+	   height instead of sharing a height that no longer exists. */
+	@container (max-width:520px){.ha-np-row{flex:none}}
 	.ha-np-empty{color:var(--color-text-subdue);font-size:.85em;padding:8px 0}
 	/* Rows share the panel's height equally, so the panel matches the map. */
 	.ha-np-row{--accent:var(--color-primary);flex:1 1 0;min-height:64px;display:grid;grid-template-columns:auto 1fr;grid-template-rows:1fr auto auto;gap:2px 12px;align-items:center;
 	  padding:8px 10px 8px 8px;border-radius:var(--border-radius,8px);border:1px solid var(--color-widget-content-border);
 	  border-left:3px solid var(--accent);background:var(--color-widget-background);overflow:hidden}
 	.ha-np-row[data-state="playing"]{background:color-mix(in srgb,var(--accent) 8%,var(--color-widget-background))}
-	.ha-np-art{grid-row:1/4;align-self:center;height:100%;max-height:110px;min-height:40px;aspect-ratio:1;border-radius:6px;overflow:hidden;
+	/* Art is sized from the card's width (not its height): when the panel
+	   wraps under the map on a phone the rows have no height to inherit,
+	   and a height-based square blew up to the card's full width. */
+	.ha-np-art{grid-row:1/4;align-self:center;width:clamp(56px,24cqw,110px);aspect-ratio:1;border-radius:6px;overflow:hidden;
 	  background:color-mix(in srgb,var(--accent) 14%,var(--color-widget-background));display:flex;align-items:center;justify-content:center}
 	.ha-np-art img{width:100%;height:100%;object-fit:cover;display:block}
 	.ha-np-art img[src=""],.ha-np-art img:not([src]){display:none}
