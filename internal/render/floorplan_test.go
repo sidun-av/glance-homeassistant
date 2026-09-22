@@ -213,7 +213,7 @@ func TestRenderFloorplanRoom_DevicesAndSlotOverflow(t *testing.T) {
 	for _, want := range []string{
 		`data-slot="t" class="ha-device" data-entity-id="fan.0" data-on="true" data-effect="fan" title="Fan"`,
 		`data-slot="br" class="ha-device" data-entity-id="fan.7"`,
-		`data-slot="c" class="ha-device" data-entity-id="fan.8"`,
+		`data-slot="c" data-center="true" class="ha-device" data-entity-id="fan.8"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q in %s", want, html)
@@ -234,7 +234,7 @@ func TestRenderPlacedRoom(t *testing.T) {
 		`class="ha-fp-icons ha-fp-placed" style="--reach:0.70;grid-template-rows:repeat(3,1fr);grid-template-columns:repeat(3,1fr)"`,
 		`style="grid-area:1/1;place-self:start start;--dir:-45deg;--len:calc(max(33.33cqw,33.33cqh) + 0.41 * min(33.33cqw,33.33cqh))" class="ha-light" data-entity-id="light.a"`,
 		`data-slot="t" class="ha-light" data-entity-id="light.b"`, // unplaced → first wall slot
-		`style="grid-area:2/2;place-self:center center;--dir:0deg;--len:0px" class="ha-badge" data-sensor-name="Door"`,
+		`style="grid-area:2/2;place-self:center center;--dir:0deg;--len:0px" data-center="true" class="ha-badge" data-sensor-name="Door"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q in\n%s", want, html)

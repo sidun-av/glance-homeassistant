@@ -171,7 +171,19 @@ const floorplanCSS = `
 	.ha-fp-icons>[data-slot="bl"]{grid-area:3/1;place-self:end start;--dir:-135deg;--len:70cqmin}
 	.ha-fp-icons>[data-slot="br"]{grid-area:3/3;place-self:end end;--dir:135deg;--len:70cqmin}
 	.ha-fp-icons>[data-slot="c"]{grid-area:2/2;place-self:center}
-	.ha-fp-icons>[data-slot="c"]::before,.ha-fp-icons>[data-slot="c"]::after{display:none}
+	/* A source in the room's centre lights (or blows) all around: its
+	   ::before becomes a soft disc sized to the room, its ::after an
+	   expanding ripple of rings for air. */
+	.ha-fp-icons>[data-center="true"]::before,.ha-fp-icons>[data-center="true"]::after{clip-path:none;mask:none;-webkit-mask:none;
+	  width:95cqmin;height:95cqmin;border-radius:50%;transform-origin:50% 50%;transform:translate(-50%,-50%) scale(.2)}
+	.ha-fp-icons>.ha-light[data-center="true"][data-on="true"]::before{transform:translate(-50%,-50%) scale(1);
+	  background:radial-gradient(circle,rgba(255,225,170,.55) 0%,rgba(240,196,121,.28) 25%,rgba(240,196,121,.08) 55%,transparent 72%)}
+	.ha-fp-icons>.ha-device[data-center="true"][data-effect="fan"]::before{background:radial-gradient(circle,rgba(170,200,255,.5) 0%,rgba(122,162,247,.2) 30%,transparent 72%)}
+	.ha-fp-icons>.ha-device[data-center="true"][data-effect="heat"]::before{background:radial-gradient(circle,rgba(255,200,140,.55) 0%,rgba(255,150,70,.22) 30%,transparent 72%)}
+	.ha-fp-icons>.ha-device[data-center="true"][data-on="true"][data-effect]:not([data-effect=""])::before{transform:translate(-50%,-50%) scale(1)}
+	.ha-fp-icons>.ha-device[data-center="true"][data-effect]::after{background:repeating-radial-gradient(circle,transparent 0 9px,var(--wave) 11px 13px,transparent 15px 24px)}
+	.ha-fp-icons>.ha-device[data-center="true"][data-on="true"][data-effect]:not([data-effect=""])::after{animation:ha-fp-ripple 2.2s linear infinite}
+	@keyframes ha-fp-ripple{from{opacity:.9;transform:translate(-50%,-50%) scale(.35)}to{opacity:0;transform:translate(-50%,-50%) scale(1.05)}}
 	.ha-fp-placed{grid-template-columns:none;grid-template-rows:none}
 	.ha-fp-edit{position:absolute;top:0;right:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
 	  color:var(--color-text-subdue);text-decoration:none;opacity:0;transition:opacity .2s;font-size:15px;line-height:1}
@@ -259,7 +271,12 @@ func renderFloorplanRoom(key string, r RoomCardView) string {
 	if len(tiles) > 0 {
 		fmt.Fprintf(&b, `<span class="ha-fp-icons" style="--reach:%.2f">`, beamReach(r))
 		for i, tile := range tiles {
-			b.WriteString(strings.Replace(tile, `<span class="`, fmt.Sprintf(`<span data-slot="%s" class="`, wallSlots[min(i, len(wallSlots)-1)]), 1))
+			slot := wallSlots[min(i, len(wallSlots)-1)]
+			attrs := fmt.Sprintf(`data-slot="%s"`, slot)
+			if slot == "c" {
+				attrs += ` data-center="true"`
+			}
+			b.WriteString(strings.Replace(tile, `<span class="`, `<span `+attrs+` class="`, 1))
 		}
 		b.WriteString(`</span>`)
 	}
@@ -355,7 +372,11 @@ func renderPlacedRoom(key string, r RoomCardView, p RoomPlacement) string {
 			slot++
 			continue
 		}
-		b.WriteString(strings.Replace(tile, `<span class="`, `<span style="`+placedTileStyle(cell, rows, cols)+`" class="`, 1))
+		attrs := `style="` + placedTileStyle(cell, rows, cols) + `"`
+		if isCentre(cell, rows, cols) {
+			attrs += ` data-center="true"`
+		}
+		b.WriteString(strings.Replace(tile, `<span class="`, `<span `+attrs+` class="`, 1))
 	}
 	b.WriteString(`</span></div>`)
 	return b.String()
@@ -437,4 +458,11 @@ func roomTilesWithIDs(r RoomCardView) (tiles []string, ids []string) {
 		ids = append(ids, c.Name)
 	}
 	return tiles, ids
+}
+
+// isCentre reports whether a cell is the exact middle of an odd×odd inner
+// grid — the one place a source lights the whole room rather than one
+// direction.
+func isCentre(cell [2]int, rows, cols int) bool {
+	return rows%2 == 1 && cols%2 == 1 && cell[0] == rows/2 && cell[1] == cols/2
 }
