@@ -276,7 +276,7 @@ func TestRenderWidget_NowPlayingPanel(t *testing.T) {
 		`<div class="ha-fp-layout">`,
 		`<div class="ha-np" data-media-url="/ha-widget/media">`,
 		`class="ha-np-row" data-entity-id="media_player.x" data-state="playing" data-position="61" data-duration="200" data-position-at="1700000000000" style="--accent:#f0a6c8"`,
-		`Kitchen · Speaker`, `<span class="ha-np-title">Song</span>`, `<span class="ha-np-artist">Band</span>`,
+		`<span class="ha-np-room">Kitchen</span><span class="ha-np-name">Speaker</span>`, `<span class="ha-np-title">Song</span>`, `<span class="ha-np-artist">Band</span>`,
 		`data-action="media_play_pause"`, `data-action="media_next_track"`,
 		`data-accent="#f0a6c8"`, `.ha-device[data-accent="#f0a6c8"]{--accent:#f0a6c8}`,
 		`data-position="61" data-duration="200" data-position-at="1700000000000"`,
@@ -348,5 +348,16 @@ func TestRenderPlacedRoom_UnplacedOn2x2StaysInside(t *testing.T) {
 		if strings.Contains(html, bad) {
 			t.Errorf("tile outside the 2x2 grid: %s", bad)
 		}
+	}
+}
+
+func TestRenderNowPlayingRow_RoomTitle(t *testing.T) {
+	same := renderNowPlayingRow(MediaView{EntityID: "media_player.k", Room: "Kitchen", Name: "Kitchen", State: "idle"}, false)
+	if !strings.Contains(same, `<span class="ha-np-room">Kitchen</span><span class="ha-np-title">`) || strings.Contains(same, "ha-np-name") {
+		t.Errorf("player name equal to the room must be omitted: %s", same)
+	}
+	none := renderNowPlayingRow(MediaView{EntityID: "media_player.tv", Name: "TV", State: "idle"}, false)
+	if !strings.Contains(none, `<span class="ha-np-room">TV</span>`) || strings.Contains(none, "ha-np-name") {
+		t.Errorf("player without an Area uses its own name as the title: %s", none)
 	}
 }

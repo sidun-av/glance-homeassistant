@@ -51,7 +51,8 @@ const nowPlayingCSS = `
 	.ha-np-art[data-has-art="true"] svg{display:none}
 	.ha-np-row[data-state="idle"] .ha-np-art svg path,.ha-np-row[data-state="on"] .ha-np-art svg path{fill:var(--color-text-subdue)}
 	.ha-np-text{min-width:0;display:flex;flex-direction:column;gap:2px;align-self:end}
-	.ha-np-name{font-size:11px;letter-spacing:.03em;color:var(--color-text-subdue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+	.ha-np-room{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+	.ha-np-name{font-size:10.5px;letter-spacing:.03em;color:var(--color-text-subdue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-title{font-size:13px;font-weight:600;color:var(--color-text-highlight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-artist{font-size:11px;color:var(--color-text-base);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-row[data-state="playing"] .ha-np-title{color:var(--accent)}
@@ -113,16 +114,24 @@ func renderNowPlayingRow(m MediaView, controls bool) string {
 		html.EscapeString(m.EntityID), html.EscapeString(m.State), m.Position, m.Duration, m.PositionAt, html.EscapeString(m.Accent))
 	hasArt := m.ArtURL != ""
 	fmt.Fprintf(&b, `<span class="ha-np-art" data-has-art="%t"><img src="%s" alt="" loading="lazy">%s</span>`, hasArt, html.EscapeString(m.ArtURL), DeviceIcon("media_player", ""))
-	name := m.Name
-	if m.Room != "" {
-		name = m.Room + " · " + m.Name
+	// Card header: the room as the title, the player's own name under it
+	// (omitted when it just repeats the room). A player outside any Area
+	// uses its own name as the title.
+	roomTitle, player := m.Room, m.Name
+	if roomTitle == "" {
+		roomTitle, player = m.Name, ""
+	} else if strings.EqualFold(player, roomTitle) {
+		player = ""
 	}
 	title, artist := m.Title, m.Artist
 	if title == "" {
 		title = stateLabel(m.State)
 	}
-	fmt.Fprintf(&b, `<span class="ha-np-text"><span class="ha-np-name">%s</span><span class="ha-np-title">%s</span><span class="ha-np-artist">%s</span></span>`,
-		html.EscapeString(name), html.EscapeString(title), html.EscapeString(artist))
+	fmt.Fprintf(&b, `<span class="ha-np-text"><span class="ha-np-room">%s</span>`, html.EscapeString(roomTitle))
+	if player != "" {
+		fmt.Fprintf(&b, `<span class="ha-np-name">%s</span>`, html.EscapeString(player))
+	}
+	fmt.Fprintf(&b, `<span class="ha-np-title">%s</span><span class="ha-np-artist">%s</span></span>`, html.EscapeString(title), html.EscapeString(artist))
 	if controls {
 		fmt.Fprintf(&b, `<span class="ha-np-ctl"><button type="button" class="ha-np-btn" data-action="media_previous_track" title="Previous">%s</button><button type="button" class="ha-np-btn ha-np-play" data-action="media_play_pause" title="Play / pause">%s%s</button><button type="button" class="ha-np-btn" data-action="media_next_track" title="Next">%s</button>`,
 			glyphPrev, glyphPlay, glyphPause, glyphNext)
