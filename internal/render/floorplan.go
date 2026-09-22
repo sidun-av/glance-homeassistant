@@ -187,14 +187,14 @@ const floorplanCSS = `
 	   no beam. ::before and ::after are the two notes, staggered. */
 	.ha-fp-icons>.ha-device[data-effect="music"]::before,.ha-fp-icons>.ha-device[data-effect="music"]::after{
 	  clip-path:none;mask:none;-webkit-mask:none;background:none;width:auto;height:auto;border-radius:0;
-	  left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;line-height:1;color:var(--color-primary);
+	  left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;line-height:1;color:var(--accent,var(--color-primary));
 	  transform-origin:50% 50%;transition:none}
 	.ha-fp-icons>.ha-device[data-effect="music"]::before{content:"♪"}
 	.ha-fp-icons>.ha-device[data-effect="music"]::after{content:"♫";font-size:11px}
 	.ha-fp-icons>.ha-device[data-on="true"][data-effect="music"]::before{animation:ha-fp-note 2.4s ease-out infinite}
 	.ha-fp-icons>.ha-device[data-on="true"][data-effect="music"]::after{animation:ha-fp-note 2.4s ease-out 1.2s infinite}
 	@keyframes ha-fp-note{0%{opacity:0;transform:translate(-50%,-50%)}15%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + 14px),calc(-50% - 44px)) rotate(12deg)}}
-	.ha-fp-icons .ha-device[data-on="true"][data-effect="music"] svg path{fill:var(--color-primary)}
+	.ha-fp-icons .ha-device[data-on="true"][data-effect="music"] svg path{fill:var(--accent,var(--color-primary))}
 	@keyframes ha-fp-ripple{from{opacity:.9;transform:translate(-50%,-50%) scale(.35)}to{opacity:0;transform:translate(-50%,-50%) scale(1.05)}}
 	.ha-fp-placed{grid-template-columns:none;grid-template-rows:none}
 	.ha-fp-edit{position:absolute;top:0;right:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
@@ -312,8 +312,14 @@ func roomTiles(r RoomCardView) []string {
 			html.EscapeString(l.EntityID), l.On, l.IconSVG))
 	}
 	for _, d := range r.Devices {
-		tiles = append(tiles, fmt.Sprintf(`<span class="ha-device" data-entity-id="%s" data-on="%t" data-effect="%s" title="%s">%s</span>`,
-			html.EscapeString(d.EntityID), d.On, html.EscapeString(d.Effect), html.EscapeString(d.Name), d.IconSVG))
+		// The accent rides in a data attribute (not a style attr) because
+		// the slot/placement code prepends its own style attribute later.
+		accent := ""
+		if d.Accent != "" {
+			accent = fmt.Sprintf(` data-accent="%s"`, html.EscapeString(d.Accent))
+		}
+		tiles = append(tiles, fmt.Sprintf(`<span class="ha-device" data-entity-id="%s" data-on="%t" data-effect="%s"%s title="%s">%s</span>`,
+			html.EscapeString(d.EntityID), d.On, html.EscapeString(d.Effect), accent, html.EscapeString(d.Name), d.IconSVG))
 	}
 	// Occupancy is not a tile on the map: the room's outline (data-occupied
 	// on the room, kept live by the poller) is the whole signal.
@@ -477,4 +483,15 @@ func roomTilesWithIDs(r RoomCardView) (tiles []string, ids []string) {
 // direction.
 func isCentre(cell [2]int, rows, cols int) bool {
 	return rows%2 == 1 && cols%2 == 1 && cell[0] == rows/2 && cell[1] == cols/2
+}
+
+// accentRulesCSS maps each palette colour's data-accent onto --accent, so
+// a tile's notes take its Now-playing card's colour without an inline
+// style attribute (which the slot/placement code owns).
+func accentRulesCSS() string {
+	var b strings.Builder
+	for _, c := range accentPalette {
+		fmt.Fprintf(&b, "\t.ha-fp-icons .ha-device[data-accent=\"%s\"]{--accent:%s}\n", c, c)
+	}
+	return b.String()
 }

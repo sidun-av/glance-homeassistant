@@ -214,3 +214,52 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 	sort.Slice(cards, func(i, j int) bool { return cards[i].Room < cards[j].Room })
 	return cards
 }
+
+// MediaPlayer is one row of the "Now playing" panel.
+type MediaPlayer struct {
+	EntityID string
+	Name     string
+	Room     string // Area name, "" when unassigned
+	State    string // playing, paused, idle, on, ...
+	Title    string
+	Artist   string
+}
+
+// BuildMediaPlayers lists every media_player that is reachable (not
+// unavailable/unknown/off), with its Area when it has one, sorted so
+// playing ones come first and the rest by name.
+func BuildMediaPlayers(rooms []Room, states map[string]EntityState) []MediaPlayer {
+	roomOf := map[string]string{}
+	for _, r := range rooms {
+		for _, id := range r.EntityIDs {
+			roomOf[id] = r.Name
+		}
+	}
+	var out []MediaPlayer
+	for id, st := range states {
+		if st.Domain != "media_player" {
+			continue
+		}
+		switch st.State {
+		case "unavailable", "unknown", "off", "":
+			continue
+		}
+		out = append(out, MediaPlayer{EntityID: id, Name: st.FriendlyName, Room: roomOf[id], State: st.State, Title: st.MediaTitle, Artist: st.MediaArtist})
+	}
+	rank := func(s string) int {
+		switch s {
+		case "playing":
+			return 0
+		case "paused":
+			return 1
+		}
+		return 2
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if rank(out[i].State) != rank(out[j].State) {
+			return rank(out[i].State) < rank(out[j].State)
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}

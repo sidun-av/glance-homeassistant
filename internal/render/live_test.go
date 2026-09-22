@@ -93,3 +93,13 @@ func TestRenderLive_IncludesDevices(t *testing.T) {
 		t.Errorf("payload: %s", out)
 	}
 }
+
+func TestRenderLive_IncludesMedia(t *testing.T) {
+	out, err := RenderLive(nil, MediaView{EntityID: "media_player.x", State: "paused", Title: "T", Artist: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"media":[{"entity_id":"media_player.x","state":"paused","state_label":"Paused","title":"T","artist":"A"}]`) {
+		t.Errorf("payload: %s", out)
+	}
+}

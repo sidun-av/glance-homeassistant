@@ -63,6 +63,16 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
 
 `max_width` caps the map's size so it does not swallow a wide column.
 
+### Now playing
+
+Next to the map the floorplan layout lists every reachable `media_player` (anything not
+off/unavailable): room · player name, track title and artist (or its state), and previous /
+play-pause / next buttons that call the corresponding Home Assistant services through this
+service's `<public_url>/media` endpoint (POST `{entity_id, action}`; only `media_player.*` and the
+media_* transport services are accepted). Each card has its own accent colour, and the notes that
+drift up from that speaker's tile on the map use the same colour. Rows update live with the rest
+of the widget.
+
 ### Editing the map in the browser
 
 Hover the widget and click the gear in its top-right corner (or open `<public_url>/edit`, e.g.

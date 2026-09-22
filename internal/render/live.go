@@ -27,8 +27,17 @@ type LiveRoom struct {
 	Devices   []LiveDevice `json:"devices"`
 }
 
+type LiveMedia struct {
+	EntityID   string `json:"entity_id"`
+	State      string `json:"state"`
+	StateLabel string `json:"state_label"`
+	Title      string `json:"title"`
+	Artist     string `json:"artist"`
+}
+
 type LivePayload struct {
-	Rooms []LiveRoom `json:"rooms"`
+	Rooms []LiveRoom  `json:"rooms"`
+	Media []LiveMedia `json:"media"`
 }
 
 // RenderLive builds the /live.json payload from the same RoomCardView data
@@ -36,8 +45,11 @@ type LivePayload struct {
 // truth. A room with no lights, occupancy, or contacts is omitted from the
 // payload entirely — its card never changes between polls, so there's
 // nothing to send for it.
-func RenderLive(rooms []RoomCardView) ([]byte, error) {
-	payload := LivePayload{Rooms: []LiveRoom{}}
+func RenderLive(rooms []RoomCardView, media ...MediaView) ([]byte, error) {
+	payload := LivePayload{Rooms: []LiveRoom{}, Media: []LiveMedia{}}
+	for _, m := range media {
+		payload.Media = append(payload.Media, LiveMedia{EntityID: m.EntityID, State: m.State, StateLabel: stateLabel(m.State), Title: m.Title, Artist: m.Artist})
+	}
 	for _, r := range rooms {
 		if len(r.Lights) == 0 && len(r.Occupancy) == 0 && len(r.Contacts) == 0 && len(r.Devices) == 0 {
 			continue

@@ -258,3 +258,17 @@ func TestDeviceEffect_ClimateWithoutHvacActionUsesMode(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildMediaPlayers(t *testing.T) {
+	rooms := []Room{{Name: "Kitchen", EntityIDs: []string{"media_player.kitchen"}}}
+	states := map[string]EntityState{
+		"media_player.kitchen": {EntityID: "media_player.kitchen", Domain: "media_player", State: "idle", FriendlyName: "Kitchen"},
+		"media_player.bed":     {EntityID: "media_player.bed", Domain: "media_player", State: "playing", FriendlyName: "Bed", MediaTitle: "Song", MediaArtist: "Band"},
+		"media_player.tv":      {EntityID: "media_player.tv", Domain: "media_player", State: "unavailable", FriendlyName: "TV"},
+		"light.x":              {EntityID: "light.x", Domain: "light", State: "on"},
+	}
+	got := BuildMediaPlayers(rooms, states)
+	if len(got) != 2 || got[0].EntityID != "media_player.bed" || got[0].Title != "Song" || got[1].Room != "Kitchen" {
+		t.Errorf("got %+v", got)
+	}
+}

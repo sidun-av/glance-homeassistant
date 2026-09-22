@@ -265,3 +265,31 @@ func TestRenderWidget_FloorplanGear(t *testing.T) {
 		t.Error("no gear without EditURL")
 	}
 }
+
+func TestRenderWidget_NowPlayingPanel(t *testing.T) {
+	fp, _ := ParseFloorplan([]string{"a"}, map[string]string{"a": "A"})
+	data := WidgetData{Layout: "floorplan", Floorplan: fp, MediaURL: "/ha-widget/media",
+		Media: []MediaView{{EntityID: "media_player.x", Name: "Speaker", Room: "Kitchen", State: "playing", Title: "Song", Artist: "Band", Accent: "#f0a6c8"}},
+		Rooms: []RoomCardView{{Room: "A", Devices: []DeviceView{{EntityID: "media_player.x", Effect: "music", On: true, Accent: "#f0a6c8", IconSVG: "<svg/>"}}}}}
+	html := RenderWidget(data)
+	for _, want := range []string{
+		`<div class="ha-fp-layout">`,
+		`<div class="ha-np" data-media-url="/ha-widget/media">`,
+		`class="ha-np-row" data-entity-id="media_player.x" data-state="playing" style="--accent:#f0a6c8"`,
+		`Kitchen · Speaker`, `<span class="ha-np-title">Song</span>`, `<span class="ha-np-artist">Band</span>`,
+		`data-action="media_play_pause"`, `data-action="media_next_track"`,
+		`data-accent="#f0a6c8"`, `.ha-device[data-accent="#f0a6c8"]{--accent:#f0a6c8}`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	data.Media = nil
+	if !strings.Contains(RenderWidget(data), `nothing playing`) {
+		t.Error("empty panel placeholder missing")
+	}
+	data.MediaURL = ""
+	if strings.Contains(RenderWidget(data), `class="ha-np-btn"`) {
+		t.Error("no controls without MediaURL")
+	}
+}

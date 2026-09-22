@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/bits"
@@ -336,20 +338,98 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 }
 
 func (a *app) buildModel(ctx context.Context) ([]hass.RoomCard, error) {
+	cards, _, err := a.buildModelWithMedia(ctx)
+	return cards, err
+}
+
+// buildModelWithMedia fetches areas+states once and derives both the room
+// cards and the Now-playing list (with stable accent colours) from them.
+func (a *app) buildModelWithMedia(ctx context.Context) ([]hass.RoomCard, []render.MediaView, error) {
 	rooms, err := a.cache.Get(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fetch areas: %w", err)
+		return nil, nil, fmt.Errorf("fetch areas: %w", err)
 	}
 	states, err := a.client.FetchStates(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fetch states: %w", err)
+		return nil, nil, fmt.Errorf("fetch states: %w", err)
 	}
-	return hass.BuildModel(rooms, states, hass.ClassificationConfig{
+	cards := hass.BuildModel(rooms, states, hass.ClassificationConfig{
 		ContactDeviceClasses: a.cfg.Sensors.ContactDeviceClasses,
 		MotionDeviceClasses:  a.cfg.Sensors.MotionDeviceClasses,
 		DeviceDomains:        a.cfg.Devices.Domains,
 		DeviceExclude:        a.cfg.Devices.Exclude,
-	}), nil
+	})
+	players := hass.BuildMediaPlayers(rooms, states)
+	// Accents by entity_id order so a player keeps its colour across
+	// refreshes regardless of which one happens to be playing.
+	ids := make([]string, 0, len(players))
+	for _, p := range players {
+		ids = append(ids, p.EntityID)
+	}
+	sort.Strings(ids)
+	accent := map[string]string{}
+	for i, id := range ids {
+		accent[id] = render.AccentFor(i)
+	}
+	media := make([]render.MediaView, len(players))
+	for i, p := range players {
+		media[i] = render.MediaView{EntityID: p.EntityID, Name: p.Name, Room: p.Room, State: p.State, Title: p.Title, Artist: p.Artist, Accent: accent[p.EntityID]}
+	}
+	return cards, media, nil
+}
+
+// applyAccents copies each media player's card colour onto its map tile.
+func applyAccents(views []render.RoomCardView, media []render.MediaView) {
+	accent := map[string]string{}
+	for _, m := range media {
+		accent[m.EntityID] = m.Accent
+	}
+	for i := range views {
+		for j := range views[i].Devices {
+			views[i].Devices[j].Accent = accent[views[i].Devices[j].EntityID]
+		}
+	}
+}
+
+// mediaURL is where the Now-playing buttons POST, under public_url like
+// live.json ("" when there is no public_url → no controls).
+func mediaURL(publicURL string) string {
+	if publicURL == "" {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + "/media"
+}
+
+var mediaActions = map[string]bool{"media_play_pause": true, "media_next_track": true, "media_previous_track": true, "media_play": true, "media_pause": true, "media_stop": true}
+
+// mediaHandler proxies a Now-playing button press to Home Assistant. Only
+// the listed media_player services are allowed, on media_player.* ids.
+func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST {entity_id, action}", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		EntityID string `json:"entity_id"`
+		Action   string `json:"action"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(req.EntityID, "media_player.") || !mediaActions[req.Action] {
+		http.Error(w, "unsupported entity or action", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	if err := a.client.CallService(ctx, "media_player", req.Action, req.EntityID); err != nil {
+		log.Printf("media %s %s: %v", req.Action, req.EntityID, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Nominal internal SVG coordinate-space height for the sparkline chart
@@ -468,7 +548,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 // layout / config default). The editor's preview calls it with an
 // unsaved layout.
 func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref string) (string, error) {
-	cards, err := a.buildModel(ctx)
+	cards, media, err := a.buildModelWithMedia(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -635,10 +715,13 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		views[i] = view
 	}
 
+	applyAccents(views, media)
 	widgetData := render.WidgetData{
 		Layout:          a.cfg.Layout,
 		Floorplan:       fp,
 		EditURL:         editHref,
+		Media:           media,
+		MediaURL:        mediaURL(a.cfg.PublicURL),
 		Rooms:           views,
 		CardMinHeight:   a.cfg.Temperature.ChartHeight,
 		LiveURL:         liveURL(a.cfg.PublicURL),
@@ -655,7 +738,7 @@ func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	cards, err := a.buildModel(ctx)
+	cards, media, err := a.buildModelWithMedia(ctx)
 	if err != nil {
 		log.Printf("home assistant unavailable: %v", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -667,7 +750,7 @@ func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
 		views[i] = roomCardView(card)
 	}
 
-	body, err := render.RenderLive(views)
+	body, err := render.RenderLive(views, media...)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -685,6 +768,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	})
 	mux.HandleFunc("/widget", a.widgetHandler)
 	mux.HandleFunc("/live.json", a.liveHandler)
+	mux.HandleFunc("/media", a.mediaHandler)
 	ed := &editor.Handler{Store: a, Source: a}
 	ed.Register(mux, "")
 
@@ -701,6 +785,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	// only applies when public_url is itself a path.
 	if prefix := strings.TrimRight(cfg.PublicURL, "/"); strings.HasPrefix(prefix, "/") {
 		mux.HandleFunc(prefix+"/live.json", a.liveHandler)
+		mux.HandleFunc(prefix+"/media", a.mediaHandler)
 		ed.Register(mux, prefix)
 	}
 	return mux

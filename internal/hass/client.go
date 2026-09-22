@@ -99,6 +99,8 @@ type EntityState struct {
 	DeviceClass  string
 	Icon         string
 	HvacAction   string // climate only: "heating", "cooling", "fan", "idle", ...
+	MediaTitle   string // media_player only
+	MediaArtist  string
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -127,6 +129,8 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			DeviceClass  string `json:"device_class"`
 			Icon         string `json:"icon"`
 			HvacAction   string `json:"hvac_action"`
+			MediaTitle   string `json:"media_title"`
+			MediaArtist  string `json:"media_artist"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -152,6 +156,8 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			DeviceClass:  s.Attributes.DeviceClass,
 			Icon:         s.Attributes.Icon,
 			HvacAction:   s.Attributes.HvacAction,
+			MediaTitle:   s.Attributes.MediaTitle,
+			MediaArtist:  s.Attributes.MediaArtist,
 		}
 	}
 	return states, nil
@@ -376,4 +382,25 @@ func (s SunState) SolarNoon() (noon time.Time, ok bool) {
 		rise = rise.Add(-24 * time.Hour)
 	}
 	return rise.Add(set.Sub(rise) / 2), true
+}
+
+// CallService invokes a Home Assistant service on one entity, e.g.
+// ("media_player", "media_play_pause", "media_player.kitchen").
+func (c *Client) CallService(ctx context.Context, domain, service, entityID string) error {
+	body, _ := json.Marshal(map[string]string{"entity_id": entityID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/services/"+domain+"/"+service, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call %s.%s: %w", domain, service, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("%s.%s returned status %d", domain, service, resp.StatusCode)
+	}
+	return nil
 }

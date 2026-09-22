@@ -17,7 +17,8 @@ type DeviceView struct {
 	Name     string
 	IconSVG  string
 	On       bool
-	Effect   string // "fan", "heat" or ""
+	Effect   string // "fan", "heat", "music" or ""
+	Accent   string // media players: the Now-playing card's colour, so the notes match
 }
 
 type SensorBadgeView struct {
@@ -44,8 +45,10 @@ type RoomCardView struct {
 }
 
 type WidgetData struct {
-	Layout          string     // "" or "cards" → room cards; "floorplan" → schematic map
-	EditURL         string     // floorplan only: href of the hover gear that opens the editor ("" = no gear)
+	Layout          string // "" or "cards" → room cards; "floorplan" → schematic map
+	EditURL         string // floorplan only: href of the hover gear that opens the editor ("" = no gear)
+	Media           []MediaView
+	MediaURL        string     // endpoint the Now-playing buttons POST to ("" = no controls)
 	Floorplan       *Floorplan // required when Layout == "floorplan"
 	Rooms           []RoomCardView
 	CardMinHeight   int
@@ -253,7 +256,7 @@ const roomSizeCSS = `
 func styleBlock(cardMinHeight int) string {
 	return "<style>" +
 		fmt.Sprintf(roomSizeCSS, cardMinHeight, cardMinHeight+20, cardMinHeight+130) +
-		widgetCSS + chartCSS + floorplanCSS +
+		widgetCSS + chartCSS + floorplanCSS + nowPlayingCSS + accentRulesCSS() +
 		"</style>"
 }
 
@@ -265,7 +268,7 @@ func styleBlock(cardMinHeight int) string {
 // light's on state, a room's lit/occupied state, a contact's open state)
 // is a data-* attribute, matching the initial render exactly — it never
 // needs to know a light's fixture type or reconstruct any markup.
-const bootstrapScript = `(function(img){var root=img.closest('.ha-widget');if(!root)return;var url=root.dataset.liveUrl;var interval=parseInt(root.dataset.pollMs,10)||10000;var pauseWhenHidden=root.dataset.pauseHidden==='true';var timer=null;function applyState(data){(data.rooms||[]).forEach(function(room){var card=root.querySelector('.ha-room[data-room="'+CSS.escape(room.room)+'"]');if(!card)return;var anyLit=false;(room.lights||[]).forEach(function(l){var el=card.querySelector('.ha-light[data-entity-id="'+CSS.escape(l.entity_id)+'"]');if(!el)return;el.dataset.on=l.on;if(l.on)anyLit=true;});var anyOccupied=false;(room.occupancy||[]).forEach(function(o){if(o.attention)anyOccupied=true;var chip=card.querySelector('.ha-occ-chip[data-sensor-name="'+CSS.escape(o.name)+'"]');if(!chip)return;chip.dataset.occupied=o.attention;var label=chip.querySelector('.ha-occ-label');if(label)label.textContent=o.label;});(room.contacts||[]).forEach(function(c){var badge=card.querySelector('.ha-badge[data-sensor-name="'+CSS.escape(c.name)+'"]');if(!badge)return;badge.dataset.open=c.attention;var label=badge.querySelector('.ha-contact-label');if(label)label.textContent=c.label;});(room.devices||[]).forEach(function(d){var el=card.querySelector('.ha-device[data-entity-id="'+CSS.escape(d.entity_id)+'"]');if(!el)return;el.dataset.on=d.on;el.dataset.effect=d.effect||'';});card.dataset.lit=anyLit;card.dataset.occupied=anyOccupied;});}function poll(){fetch(url,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(data){if(data)applyState(data);}).catch(function(){});}function stop(){if(timer){clearInterval(timer);timer=null;}}function schedule(){stop();timer=setInterval(poll,interval);}if(pauseWhenHidden){document.addEventListener('visibilitychange',function(){if(document.hidden){stop();}else{poll();schedule();}});}if(!pauseWhenHidden||!document.hidden){poll();schedule();}})(this)`
+const bootstrapScript = `(function(img){var root=img.closest('.ha-widget');if(!root)return;var url=root.dataset.liveUrl;var interval=parseInt(root.dataset.pollMs,10)||10000;var pauseWhenHidden=root.dataset.pauseHidden==='true';var timer=null;function applyState(data){(data.rooms||[]).forEach(function(room){var card=root.querySelector('.ha-room[data-room="'+CSS.escape(room.room)+'"]');if(!card)return;var anyLit=false;(room.lights||[]).forEach(function(l){var el=card.querySelector('.ha-light[data-entity-id="'+CSS.escape(l.entity_id)+'"]');if(!el)return;el.dataset.on=l.on;if(l.on)anyLit=true;});var anyOccupied=false;(room.occupancy||[]).forEach(function(o){if(o.attention)anyOccupied=true;var chip=card.querySelector('.ha-occ-chip[data-sensor-name="'+CSS.escape(o.name)+'"]');if(!chip)return;chip.dataset.occupied=o.attention;var label=chip.querySelector('.ha-occ-label');if(label)label.textContent=o.label;});(room.contacts||[]).forEach(function(c){var badge=card.querySelector('.ha-badge[data-sensor-name="'+CSS.escape(c.name)+'"]');if(!badge)return;badge.dataset.open=c.attention;var label=badge.querySelector('.ha-contact-label');if(label)label.textContent=c.label;});(room.devices||[]).forEach(function(d){var el=card.querySelector('.ha-device[data-entity-id="'+CSS.escape(d.entity_id)+'"]');if(!el)return;el.dataset.on=d.on;el.dataset.effect=d.effect||'';});card.dataset.lit=anyLit;card.dataset.occupied=anyOccupied;});var np=root.querySelector('.ha-np');if(np&&data.media){(data.media||[]).forEach(function(m){var row=np.querySelector('.ha-np-row[data-entity-id="'+CSS.escape(m.entity_id)+'"]');if(!row)return;row.dataset.state=m.state;var t=row.querySelector('.ha-np-title');if(t)t.textContent=m.title||m.state_label||'';var a=row.querySelector('.ha-np-artist');if(a)a.textContent=m.artist||'';});}}function poll(){fetch(url,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(data){if(data)applyState(data);}).catch(function(){});}function stop(){if(timer){clearInterval(timer);timer=null;}}function schedule(){stop();timer=setInterval(poll,interval);}root.addEventListener('click',function(e){var btn=e.target.closest('.ha-np-btn');if(!btn)return;var row=btn.closest('.ha-np-row');var np=btn.closest('.ha-np');if(!row||!np||!np.dataset.mediaUrl)return;e.preventDefault();btn.dataset.busy='true';fetch(np.dataset.mediaUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id:row.dataset.entityId,action:btn.dataset.action})}).catch(function(){}).then(function(){setTimeout(function(){btn.dataset.busy='false';poll();},600);});});if(pauseWhenHidden){document.addEventListener('visibilitychange',function(){if(document.hidden){stop();}else{poll();schedule();}});}if(!pauseWhenHidden||!document.hidden){poll();schedule();}})(this)`
 
 func RenderWidget(data WidgetData) string {
 	var b strings.Builder
@@ -284,7 +287,7 @@ func RenderWidget(data WidgetData) string {
 		if data.EditURL != "" {
 			fmt.Fprintf(&b, `<a class="ha-fp-edit" href="%s" title="Edit floorplan" aria-label="Edit floorplan">&#9881;</a>`, html.EscapeString(data.EditURL))
 		}
-		b.WriteString(renderFloorplan(data))
+		b.WriteString(`<div class="ha-fp-layout">` + renderFloorplan(data) + renderNowPlaying(data.Media, data.MediaURL) + `</div>`)
 	} else if len(data.Rooms) == 0 {
 		b.WriteString(`<div class="ha-empty">no rooms with a temperature sensor, light, or sensor found</div>`)
 	} else {
