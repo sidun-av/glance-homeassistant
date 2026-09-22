@@ -29,6 +29,7 @@ config edit, not a code change:
 layout: floorplan
 floorplan:
   aspect_ratio: "1.15"                  # optional: width/height of the whole map
+  max_width: 420                        # optional: px, keeps the map compact in a wide column
   grid:
     - "bedroom bedroom kitchen kitchen"
     - "bedroom bedroom kitchen kitchen"
@@ -42,9 +43,11 @@ floorplan:
 ```
 
 Each room shows its name, and — only where the room has that data — the current temperature
-with a trend arrow (red ↑ rising, blue ↓ falling vs. the previous hour), its lights (lit ones
-glow), and occupancy/contact chips. A room with a light on gets the same warm tint as in the
-cards layout; an occupied room gets a thin accent outline. No temperature chart. Colours all come
+with a trend arrow (red ↑ rising, blue ↓ falling over roughly the last 4 hours, ≥0.2°), and a
+centred grid of icons: its lights (a lit lamp casts a warm glow that spreads from the icon and
+fades before the walls), a running figure per motion/occupancy sensor (accent-coloured while
+motion is detected, faint otherwise), and a door icon per contact sensor. An occupied room also
+gets a thin accent outline. `max_width` caps the map's size so it does not swallow a wide column. No temperature chart. Colours all come
 from Glance's theme variables, so it follows whatever theme the dashboard runs. The map's height
 follows its width via `aspect_ratio` (default: square cells, i.e. `columns/rows`). Live updates
 work exactly as in the cards layout.
@@ -157,6 +160,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `FLOORPLAN_GRID` | `floorplan.grid` | — | rows joined with `;`, e.g. `bedroom bedroom kitchen;bath hall kitchen` |
 | `FLOORPLAN_ROOMS` | `floorplan.rooms` | — | `key=Area Name,key2=Area 2` |
 | `FLOORPLAN_ASPECT_RATIO` | `floorplan.aspect_ratio` | columns/rows | CSS aspect-ratio of the whole map, e.g. `4/3` or `1.15` |
+| `FLOORPLAN_MAX_WIDTH` | `floorplan.max_width` | `0` (fill) | cap on the map's width in px — with aspect_ratio this is its overall size |
 | `LIVE_POLL_INTERVAL` | `live.poll_interval` | `10s` | How often the browser polls `/live.json` while the tab is open |
 | `LIVE_PAUSE_WHEN_HIDDEN` | `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
 | `SENSORS_CONTACT_DEVICE_CLASSES` | `sensors.contact_device_classes` | `door,window,garage_door,opening` | Comma-separated `binary_sensor` device classes shown as Open/Closed |

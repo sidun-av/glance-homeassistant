@@ -100,7 +100,8 @@ func TestRenderWidget_FloorplanLayout(t *testing.T) {
 		`<span class="ha-fp-name">Bedroom</span>`,
 		`<span class="ha-fp-temp">22°<span class="ha-fp-trend" data-trend="up">↑</span></span>`,
 		`data-entity-id="light.lr_main" data-on="true"`,
-		`data-sensor-name="LR Motion" data-occupied="true"`,
+		`class="ha-occ-chip ha-fp-motion" data-sensor-name="LR Motion" data-occupied="true"`,
+		`class="ha-fp-icons"`,
 		`data-sensor-name="LR Window" data-open="true"`,
 		// Mapped rooms with no HA data still get drawn, empty, so the map keeps its shape.
 		`class="ha-room ha-fp-room" data-room="Kitchen" data-lit="false" data-occupied="false" style="grid-area:kitchen"`,
@@ -156,5 +157,32 @@ func TestRenderFloorplan_AspectRatioOverride(t *testing.T) {
 	fp.AspectRatio = "1.15"
 	if !strings.Contains(RenderWidget(data), "aspect-ratio:1.15\"") {
 		t.Error("explicit aspect_ratio must be used verbatim")
+	}
+}
+
+func TestRenderFloorplan_MaxWidth(t *testing.T) {
+	fp, _ := ParseFloorplan([]string{"a"}, map[string]string{"a": "A"})
+	data := WidgetData{Layout: "floorplan", Floorplan: fp}
+	if strings.Contains(RenderWidget(data), `aspect-ratio:1/1;max-width:`) {
+		t.Error("no max-width by default")
+	}
+	fp.MaxWidth = 420
+	if !strings.Contains(RenderWidget(data), `aspect-ratio:1/1;max-width:420px"`) {
+		t.Error("max_width must land on the map container")
+	}
+}
+
+func TestRenderFloorplanRoom_MotionIconCarriesLiveContract(t *testing.T) {
+	html := renderFloorplanRoom("k", RoomCardView{Room: "R", Occupancy: []SensorBadgeView{{Name: "M", Attention: false, Label: "Clear"}}})
+	if !strings.Contains(html, `data-sensor-name="M" data-occupied="false"`) || !strings.Contains(html, "<svg") {
+		t.Errorf("motion icon must keep data-sensor-name/data-occupied and render an svg: %s", html)
+	}
+}
+
+func TestFloorplanCSS_LightSpill(t *testing.T) {
+	for _, want := range []string{`.ha-fp-icons .ha-light[data-on="true"]::before{opacity:1`, `overflow:hidden`} {
+		if !strings.Contains(floorplanCSS, want) {
+			t.Errorf("floorplan CSS missing %q", want)
+		}
 	}
 }

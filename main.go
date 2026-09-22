@@ -230,17 +230,27 @@ func projectYesterday(values, dayEarlier []float64, currentIdx int) {
 	}
 }
 
-// temperatureTrend compares the current bucket with the most recent earlier
-// bucket that has a reading (history can have gaps) and reports +1/-1 when
-// the move exceeds trendThreshold — small sensor jitter should not flip the
-// arrow every refresh. 0 means flat or not enough data.
-const trendThreshold = 0.3
+// temperatureTrend compares the current bucket with the reading
+// trendLookback buckets earlier (or the most recent earlier bucket that has
+// one — history can have gaps) and reports +1/-1 when the move exceeds
+// trendThreshold. A single-bucket comparison missed slow drifts entirely
+// (a room cooling 0.1°/h never moved the arrow), hence the wider window;
+// the threshold keeps sensor jitter from flipping the arrow every refresh.
+// 0 means flat or not enough data.
+const (
+	trendThreshold = 0.2
+	trendLookback  = 2 // buckets (barColumnsCount=12 → 2h each → ~4h window)
+)
 
 func temperatureTrend(values []float64, currentIdx int) int {
 	if currentIdx <= 0 || currentIdx >= len(values) || math.IsNaN(values[currentIdx]) {
 		return 0
 	}
-	for i := currentIdx - 1; i >= 0; i-- {
+	from := currentIdx - trendLookback
+	if from < 0 {
+		from = 0
+	}
+	for i := from; i < currentIdx; i++ {
 		if math.IsNaN(values[i]) {
 			continue
 		}

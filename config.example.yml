@@ -35,6 +35,7 @@ layout: cards   # env: LAYOUT — "cards" (per-room cards with temperature chart
 # not drawn; a listed room with no Home Assistant data is drawn empty.
 floorplan:
   aspect_ratio: "1.15"   # env: FLOORPLAN_ASPECT_RATIO — width/height of the whole map; default = columns/rows (square cells)
+  max_width: 420         # env: FLOORPLAN_MAX_WIDTH — px cap on the map's width (0 = fill the widget)
   grid:                  # env: FLOORPLAN_GRID — same rows joined with ";"
     - "bedroom bedroom kitchen kitchen"
     - "bedroom bedroom kitchen kitchen"

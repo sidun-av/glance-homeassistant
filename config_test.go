@@ -457,11 +457,12 @@ home_assistant:
 	t.Setenv("FLOORPLAN_GRID", "bedroom bedroom kitchen; bath hall kitchen")
 	t.Setenv("FLOORPLAN_ROOMS", "bedroom=Bedroom, kitchen=Kitchen,bath=Bathroom,hall=Hallway")
 	t.Setenv("FLOORPLAN_ASPECT_RATIO", "4/3")
+	t.Setenv("FLOORPLAN_MAX_WIDTH", "420")
 	cfg, err := LoadConfig(path)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg.Floorplan.Parsed == nil || cfg.Floorplan.Parsed.Rows != 2 || cfg.Floorplan.Parsed.Areas["hall"] != "Hallway" || cfg.Floorplan.Parsed.AspectRatio != "4/3" {
+	if cfg.Floorplan.Parsed == nil || cfg.Floorplan.Parsed.Rows != 2 || cfg.Floorplan.Parsed.Areas["hall"] != "Hallway" || cfg.Floorplan.Parsed.AspectRatio != "4/3" || cfg.Floorplan.Parsed.MaxWidth != 420 {
 		t.Fatalf("env floorplan not applied: %+v", cfg.Floorplan)
 	}
 }

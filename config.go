@@ -27,6 +27,7 @@ type FloorplanConfig struct {
 	Grid        []string          `yaml:"grid"`
 	Rooms       map[string]string `yaml:"rooms"`
 	AspectRatio string            `yaml:"aspect_ratio"` // optional CSS aspect-ratio for the whole map, e.g. "4/3" or "1.15"
+	MaxWidth    int               `yaml:"max_width"`    // optional cap on the map's width in px (0 = fill the widget)
 	Parsed      *render.Floorplan `yaml:"-"`            // validated at load time when layout == "floorplan"
 }
 
@@ -140,6 +141,10 @@ func LoadConfig(path string) (*Config, error) {
 			}
 			fp.AspectRatio = ar
 		}
+		if cfg.Floorplan.MaxWidth < 0 {
+			return nil, fmt.Errorf("floorplan.max_width must not be negative, got %d", cfg.Floorplan.MaxWidth)
+		}
+		fp.MaxWidth = cfg.Floorplan.MaxWidth
 		cfg.Floorplan.Parsed = fp
 	}
 
@@ -244,6 +249,13 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("FLOORPLAN_ASPECT_RATIO"); ok {
 		cfg.Floorplan.AspectRatio = v
+	}
+	if v, ok := lookupNonEmptyEnv("FLOORPLAN_MAX_WIDTH"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("env FLOORPLAN_MAX_WIDTH=%q is not a valid integer: %w", v, err)
+		}
+		cfg.Floorplan.MaxWidth = n
 	}
 	if v, ok := lookupNonEmptyEnv("FLOORPLAN_ROOMS"); ok {
 		rooms := map[string]string{}

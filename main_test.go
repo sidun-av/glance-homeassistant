@@ -551,8 +551,10 @@ func TestTemperatureTrend(t *testing.T) {
 	}{
 		{"rising", []float64{20, 21.5}, 1, 1},
 		{"falling", []float64{22, 21}, 1, -1},
-		{"flat within threshold", []float64{21.0, 21.2}, 1, 0},
-		{"skips NaN gap to previous reading", []float64{20, nan, nan, 22}, 3, 1},
+		{"flat within threshold", []float64{21.0, 21.1}, 1, 0},
+		{"slow drift over the lookback window", []float64{22.5, 22.4, 22.2}, 2, -1},
+		{"only the lookback window counts", []float64{10, 22.5, 22.4, 22.2}, 3, -1},
+		{"skips NaN gap to next reading", []float64{nan, nan, 20, 22}, 3, 1},
 		{"first bucket has no previous", []float64{20, 21}, 0, 0},
 		{"all previous NaN", []float64{nan, 21}, 1, 0},
 	}
