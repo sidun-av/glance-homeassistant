@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"html"
-	"math"
 	"sort"
 	"strings"
 )
@@ -150,7 +149,7 @@ const floorplanCSS = `
 	/* The flow: a cone whose apex is the tile's centre, drawn pointing
 	   "down" in its own frame and rotated by --dir toward the room centre.
 	   ::before is the soft body, ::after the moving wave stripes (air only). */
-	.ha-fp-icons>span::before,.ha-fp-icons>span::after{content:"";position:absolute;left:50%;top:50%;width:calc(var(--len) * .9 * var(--spread,1));height:calc(var(--len) * .92);mix-blend-mode:screen;
+	.ha-fp-icons>span::before,.ha-fp-icons>span::after{content:"";position:absolute;left:50%;top:50%;width:calc(var(--len) * .9);height:calc(var(--len) * var(--reach,.92));mix-blend-mode:screen;
 	  transform-origin:50% 0;transform:translateX(-50%) rotate(var(--dir)) scaleY(.15);opacity:0;pointer-events:none;
 	  clip-path:polygon(50% 0,100% 100%,0 100%);transition:opacity .5s ease,transform .6s ease;
 	  /* soft edges + fade along the beam, like a spotlight cone */
@@ -222,7 +221,7 @@ func renderFloorplanRoom(key string, r RoomCardView) string {
 	}
 	tiles := roomTiles(r)
 	if len(tiles) > 0 {
-		fmt.Fprintf(&b, `<span class="ha-fp-icons" style="--spread:%.2f">`, beamSpread(r))
+		fmt.Fprintf(&b, `<span class="ha-fp-icons" style="--reach:%.2f">`, beamReach(r))
 		for i, tile := range tiles {
 			b.WriteString(strings.Replace(tile, `<span class="`, fmt.Sprintf(`<span data-slot="%s" class="`, wallSlots[min(i, len(wallSlots)-1)]), 1))
 		}
@@ -260,19 +259,22 @@ func roomTiles(r RoomCardView) []string {
 	return tiles
 }
 
-// beamSpread narrows every beam as more beam-casting sources share a room
-// so they meet at the centre instead of piling on top of each other:
-// 1 source → full width, 2 → ~0.7, 3+ → 0.6 (floor, so a beam still reads
-// as a beam). Only lights and air devices count; a speaker casts nothing.
-func beamSpread(r RoomCardView) float64 {
+// beamReach shortens every beam as more beam-casting sources share a room
+// so they stop short of each other instead of crossing at the centre:
+// 1 source → all the way to the centre (0.92 of the distance), 2 → 0.7,
+// 3+ → 0.55. Only lights and air devices count; a speaker casts nothing.
+func beamReach(r RoomCardView) float64 {
 	n := len(r.Lights)
 	for _, d := range r.Devices {
 		if d.Effect != "" {
 			n++
 		}
 	}
-	if n <= 1 {
-		return 1
+	switch {
+	case n <= 1:
+		return 0.92
+	case n == 2:
+		return 0.7
 	}
-	return math.Max(0.6, 1/math.Sqrt(float64(n)))
+	return 0.55
 }

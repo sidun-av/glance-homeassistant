@@ -103,7 +103,7 @@ func TestRenderWidget_FloorplanLayout(t *testing.T) {
 		`data-entity-id="light.lr_main" data-on="true"`,
 		`data-slot="t" class="ha-light" data-entity-id="light.lr_main"`,
 		`data-slot="b" class="ha-badge" data-sensor-name="LR Window"`,
-		`class="ha-fp-icons" style="--spread:1.00"`,
+		`class="ha-fp-icons" style="--reach:0.92"`,
 		`class="ha-fp-icons"`,
 		`data-sensor-name="LR Window" data-open="true"`,
 		// Mapped rooms with no HA data still get drawn, empty, so the map keeps its shape.
@@ -185,14 +185,14 @@ func TestRenderFloorplanRoom_OccupancyIsOutlineOnly(t *testing.T) {
 	}
 }
 
-func TestRenderFloorplanRoom_SpreadNarrowsWithSources(t *testing.T) {
+func TestRenderFloorplanRoom_ReachShortensWithSources(t *testing.T) {
 	r := RoomCardView{Room: "R", Lights: []LightView{{EntityID: "a"}, {EntityID: "b"}}, Devices: []DeviceView{{EntityID: "m", Effect: ""}}}
-	if !strings.Contains(renderFloorplanRoom("k", r), `style="--spread:0.71"`) {
-		t.Error("two lights + a speaker → spread 0.71 (speaker casts nothing)")
+	if !strings.Contains(renderFloorplanRoom("k", r), `style="--reach:0.70"`) {
+		t.Error("two lights + a speaker → reach 0.7 (speaker casts nothing)")
 	}
-	r.Lights = append(r.Lights, LightView{EntityID: "c"}, LightView{EntityID: "d"})
-	if !strings.Contains(renderFloorplanRoom("k", r), `style="--spread:0.60"`) {
-		t.Error("four lights → floor 0.6")
+	r.Lights = append(r.Lights, LightView{EntityID: "c"})
+	if !strings.Contains(renderFloorplanRoom("k", r), `style="--reach:0.55"`) {
+		t.Error("three lights → reach 0.55")
 	}
 }
 
