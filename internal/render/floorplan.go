@@ -382,13 +382,25 @@ func renderPlacedRoom(key string, r RoomCardView, p RoomPlacement) string {
 	}
 	rows, cols := max(p.Rows, 1), max(p.Columns, 1)
 	fmt.Fprintf(&b, `<span class="ha-fp-icons ha-fp-placed" style="--reach:%.2f;grid-template-rows:repeat(%d,1fr);grid-template-columns:repeat(%d,1fr)">`, beamReach(r), rows, cols)
-	slot := 0
+	// Unplaced tiles get free cells of THIS room's grid in wall order
+	// (the old 3x3 slot names only make sense on a 3x3 grid).
+	taken := map[[2]int]bool{}
+	for _, id := range ids {
+		if c, ok := p.Cells[id]; ok {
+			taken[c] = true
+		}
+	}
+	auto := autoCells(rows, cols, taken)
+	next := 0
 	for i, tile := range tiles {
 		cell, placed := p.Cells[ids[i]]
 		if !placed {
-			b.WriteString(strings.Replace(tile, `<span class="`, fmt.Sprintf(`<span data-slot="%s" class="`, wallSlots[min(slot, len(wallSlots)-1)]), 1))
-			slot++
-			continue
+			if next < len(auto) {
+				cell = auto[next]
+				next++
+			} else {
+				cell = [2]int{rows / 2, cols / 2}
+			}
 		}
 		attrs := `style="` + placedTileStyle(cell, rows, cols) + `"`
 		if isCentre(cell, rows, cols) {
@@ -398,6 +410,39 @@ func renderPlacedRoom(key string, r RoomCardView, p RoomPlacement) string {
 	}
 	b.WriteString(`</span></div>`)
 	return b.String()
+}
+
+// autoCells lists free cells of a rows×cols grid in the order automatic
+// tiles should take them: wall midpoints (top, bottom, left, right), then
+// corners, then whatever is left row-major — mirroring the wall-slot
+// order of the un-edited layout, but on the room's real grid.
+func autoCells(rows, cols int, taken map[[2]int]bool) [][2]int {
+	var out [][2]int
+	seen := map[[2]int]bool{}
+	add := func(c [2]int) {
+		if c[0] < 0 || c[0] >= rows || c[1] < 0 || c[1] >= cols || taken[c] || seen[c] {
+			return
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	mr, mc := (rows-1)/2, (cols-1)/2
+	add([2]int{0, mc})
+	add([2]int{rows - 1, mc})
+	add([2]int{mr, 0})
+	add([2]int{mr, cols - 1})
+	add([2]int{0, 0})
+	add([2]int{0, cols - 1})
+	add([2]int{rows - 1, 0})
+	add([2]int{rows - 1, cols - 1})
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			if !isCentre([2]int{r, c}, rows, cols) {
+				add([2]int{r, c})
+			}
+		}
+	}
+	return out
 }
 
 // placedTileStyle positions a tile at cell [row,col] of a rows×cols inner

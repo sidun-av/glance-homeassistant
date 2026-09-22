@@ -233,7 +233,7 @@ func TestRenderPlacedRoom(t *testing.T) {
 		`<span class="ha-fp-name">Спальня</span>`,
 		`class="ha-fp-icons ha-fp-placed" style="--reach:0.70;grid-template-rows:repeat(3,1fr);grid-template-columns:repeat(3,1fr)"`,
 		`style="grid-area:1/1;place-self:start start;--dir:-45deg;--len:calc(max(33.33cqw,33.33cqh) + 0.41 * min(33.33cqw,33.33cqh))" class="ha-light" data-entity-id="light.a"`,
-		`data-slot="t" class="ha-light" data-entity-id="light.b"`, // unplaced → first wall slot
+		`style="grid-area:1/2;place-self:start center;--dir:0deg;--len:calc(max(0.00cqw,33.33cqh) + 0.41 * min(0.00cqw,33.33cqh))" class="ha-light" data-entity-id="light.b"`, // unplaced → first free wall cell (top middle)
 		`style="grid-area:2/2;place-self:center center;--dir:0deg;--len:0px" data-center="true" class="ha-badge" data-sensor-name="Door"`,
 	} {
 		if !strings.Contains(html, want) {
@@ -310,5 +310,43 @@ func TestRenderNowPlayingRow_NoVolumeHidesSlider(t *testing.T) {
 	html := renderNowPlayingRow(MediaView{EntityID: "media_player.x", State: "idle", Volume: -1}, true)
 	if !strings.Contains(html, `<span class="ha-np-vol" hidden`) {
 		t.Errorf("slider must be hidden without a volume: %s", html)
+	}
+}
+
+func TestAutoCells_FollowsRoomGrid(t *testing.T) {
+	// 2x2: no middles, so walls collapse onto corners — never outside the grid.
+	got := autoCells(2, 2, nil)
+	want := [][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}}
+	if len(got) != 4 {
+		t.Fatalf("got %v", got)
+	}
+	for _, c := range got {
+		if c[0] > 1 || c[1] > 1 {
+			t.Errorf("cell outside 2x2: %v", c)
+		}
+	}
+	_ = want
+	// 3x3 with the top taken: bottom, left, right, corners…
+	got = autoCells(3, 3, map[[2]int]bool{{0, 1}: true})
+	if got[0] != [2]int{2, 1} || got[1] != [2]int{1, 0} || got[2] != [2]int{1, 2} {
+		t.Errorf("order: %v", got)
+	}
+	for _, c := range got {
+		if c == [2]int{1, 1} {
+			t.Error("centre must not be auto-filled")
+		}
+	}
+}
+
+func TestRenderPlacedRoom_UnplacedOn2x2StaysInside(t *testing.T) {
+	r := RoomCardView{Room: "B", Lights: []LightView{{EntityID: "a", IconSVG: "<svg/>"}, {EntityID: "b", IconSVG: "<svg/>"}, {EntityID: "c", IconSVG: "<svg/>"}}}
+	html := renderPlacedRoom("b", r, RoomPlacement{Rows: 2, Columns: 2})
+	if strings.Contains(html, "data-slot=") {
+		t.Error("placed rooms must not use 3x3 slot names")
+	}
+	for _, bad := range []string{"grid-area:1/3", "grid-area:3/", "grid-area:2/3"} {
+		if strings.Contains(html, bad) {
+			t.Errorf("tile outside the 2x2 grid: %s", bad)
+		}
 	}
 }

@@ -47,8 +47,13 @@ body.dragging *{cursor:inherit!important}
 .room.sel{border-color:var(--accent)}
 .room .sw{width:14px;height:14px;border-radius:3px}
 .room input,.room select{width:100%;min-width:0}
-#inner{display:grid;gap:4px;background:var(--border);padding:4px;border-radius:6px;aspect-ratio:1.2;max-width:420px;max-height:520px;margin-bottom:12px}
-#inner .icell{background:var(--bg);border-radius:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center;min-height:44px;padding:4px}
+#innerWrap{position:relative;max-width:420px;margin-bottom:12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);padding:24px 4px 4px}
+#innerWrap .rname{position:absolute;top:5px;left:9px;font-size:12px;font-weight:600;color:var(--hi)}
+#innerWrap .hint2{position:absolute;top:5px;right:9px;font-size:10px;color:var(--muted)}
+#inner{display:grid;gap:2px;background:transparent;aspect-ratio:1.2;max-height:520px}
+#inner .icell{background:var(--bg);border-radius:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center;min-height:44px;padding:4px;outline:1px dashed color-mix(in srgb,var(--border) 70%,transparent);outline-offset:-1px}
+#inner .icell[data-ay="start"]{align-items:flex-start}#inner .icell[data-ay="end"]{align-items:flex-end}
+#inner .icell[data-ax="start"]{justify-content:flex-start}#inner .icell[data-ax="end"]{justify-content:flex-end}
 #inner .icell.over{outline:2px dashed var(--accent);outline-offset:-2px}
 #inner .icell.center{background:color-mix(in srgb,var(--accent) 8%,var(--bg))}
 .ent{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:14px;background:var(--panel);cursor:grab;font-size:12px;max-width:100%}
@@ -95,7 +100,7 @@ body.dragging *{cursor:inherit!important}
       <label>rows <input type="number" id="irows" min="1" max="12"></label>
     </div>
     <p class="hint">Drag entities from the list onto a cell. Edge cells hug the wall and beam toward the centre; the centre cell casts no beam. Drag back to the list to unplace, ⊘ to hide.</p>
-    <div id="inner"></div>
+    <div id="innerWrap"><span class="rname" id="innerName"></span><span class="hint2">as on the map: edge cells hug the walls</span><div id="inner"></div></div>
     <div class="row"><label><input type="checkbox" id="showAll"> show all entities (sensors, buttons, …)</label></div>
     <div id="list"></div>
   </section>
@@ -286,12 +291,14 @@ function renderRoom(){
   syncGrid(rm);
   $("#icols").value=rm.grid.columns;$("#irows").value=rm.grid.rows;$("#igridAuto").checked=!!rm.grid.auto;
   $("#icols").disabled=$("#irows").disabled=!!rm.grid.auto;
-  inner.style.aspectRatio=String(innerAspect(rm));
+  inner.style.aspectRatio=String(innerAspect(rm));$("#innerName").textContent=rm.name||rm.area||rm.key;
   inner.style.gridTemplateColumns="repeat("+rm.grid.columns+",1fr)";inner.style.gridTemplateRows="repeat("+rm.grid.rows+",1fr)";
   const ents=areaOf(rm).entities;const byId={};ents.forEach(e=>byId[e.place_id]=e);
   const cr=(rm.grid.rows-1)/2,cc=(rm.grid.columns-1)/2;
   for(let r=0;r<rm.grid.rows;r++)for(let c=0;c<rm.grid.columns;c++){
     const cell=document.createElement("div");cell.className="icell"+(r===cr&&c===cc?" center":"");cell.dataset.r=r;cell.dataset.c=c;
+    cell.dataset.ay=rm.grid.rows>1&&r===0?"start":(rm.grid.rows>1&&r===rm.grid.rows-1?"end":"center");
+    cell.dataset.ax=rm.grid.columns>1&&c===0?"start":(rm.grid.columns>1&&c===rm.grid.columns-1?"end":"center");
     Object.entries(rm.entities).forEach(([id,pos])=>{if(pos[0]===r&&pos[1]===c){const e=byId[id]||{place_id:id,name:id,domain:"?",kind:"other"};cell.appendChild(chip(e,rm));}});
     dropzone(cell,id=>{rm.entities[id]=[r,c];renderRoom();});
     inner.appendChild(cell);

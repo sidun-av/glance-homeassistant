@@ -55,8 +55,8 @@ const nowPlayingCSS = `
 	.ha-np-title{font-size:13px;font-weight:600;color:var(--color-text-highlight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-artist{font-size:11px;color:var(--color-text-base);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-row[data-state="playing"] .ha-np-title{color:var(--accent)}
-	.ha-np-ctl{grid-column:2;display:flex;gap:4px;align-items:center;justify-self:stretch;margin-left:-6px;min-width:0}
-	.ha-np-vol{flex:1 1 60px;max-width:150px;margin-left:10px;display:flex;align-items:center;gap:6px;min-width:0}
+	.ha-np-ctl{grid-column:2;display:flex;gap:4px;align-items:center;justify-content:center;justify-self:stretch;min-width:0}
+	.ha-np-vol{flex:0 1 140px;margin-left:10px;display:flex;align-items:center;gap:6px;min-width:0}
 	.ha-np-vol svg{width:14px;height:14px;flex:none}
 	.ha-np-vol svg path{fill:var(--color-text-subdue)}
 	.ha-np-vol input{flex:1;min-width:0;height:14px;margin:0;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
