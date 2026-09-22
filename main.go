@@ -1,9 +1,9 @@
 package main
 
 import (
-	"encoding/hex"
-	"crypto/sha1"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
