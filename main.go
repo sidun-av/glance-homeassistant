@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/hex"
+	"crypto/sha1"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -380,7 +382,11 @@ func (a *app) buildModelWithMedia(ctx context.Context) ([]hass.RoomCard, []rende
 			m.PositionAt = t.UnixMilli()
 		}
 		if p.Picture != "" && a.cfg.PublicURL != "" {
-			m.ArtURL = strings.TrimRight(a.cfg.PublicURL, "/") + "/art?entity_id=" + url.QueryEscape(p.EntityID)
+			// v= is a fingerprint of HA's entity_picture (which changes per
+			// track), so the browser sees a new URL — and refetches — when
+			// the track changes, and keeps its cache otherwise.
+			sum := sha1.Sum([]byte(p.Picture))
+			m.ArtURL = strings.TrimRight(a.cfg.PublicURL, "/") + "/art?entity_id=" + url.QueryEscape(p.EntityID) + "&v=" + hex.EncodeToString(sum[:6])
 		}
 		media[i] = m
 	}
