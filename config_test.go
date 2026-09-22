@@ -484,3 +484,32 @@ func TestLoadConfig_FloorplanErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfig_DevicesDefaultsAndEnv(t *testing.T) {
+	path := writeTempConfig(t, "home_assistant:\n  url: http://x\n  token: t\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Devices.Domains) == 0 || contains(cfg.Devices.Domains, "switch") {
+		t.Errorf("default device domains must be non-empty and not include switch: %v", cfg.Devices.Domains)
+	}
+	t.Setenv("DEVICES_DOMAINS", "fan, switch")
+	t.Setenv("DEVICES_EXCLUDE", "switch.child_lock")
+	cfg, err = LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Devices.Domains) != 2 || cfg.Devices.Domains[1] != "switch" || cfg.Devices.Exclude[0] != "switch.child_lock" {
+		t.Errorf("env not applied: %+v", cfg.Devices)
+	}
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}

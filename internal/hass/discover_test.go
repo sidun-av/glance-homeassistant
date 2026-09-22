@@ -202,3 +202,59 @@ func TestBuildModel_OccupancyAttentionLabel(t *testing.T) {
 		t.Errorf("Hallway.Occupancy = %+v, want Attention=true Label=Occupied", hall.Occupancy)
 	}
 }
+
+func TestBuildModel_DevicesByDomainWithEffects(t *testing.T) {
+	rooms := []Room{{Name: "Office", EntityIDs: []string{"fan.desk", "climate.ac", "switch.heater_plug", "switch.child_lock", "media_player.tv", "vacuum.bot"}}}
+	states := map[string]EntityState{
+		"fan.desk":           {EntityID: "fan.desk", Domain: "fan", State: "on", FriendlyName: "Desk fan"},
+		"climate.ac":         {EntityID: "climate.ac", Domain: "climate", State: "heat", HvacAction: "heating", FriendlyName: "AC", Icon: "mdi:air-conditioner"},
+		"switch.heater_plug": {EntityID: "switch.heater_plug", Domain: "switch", State: "off", FriendlyName: "Heater plug"},
+		"switch.child_lock":  {EntityID: "switch.child_lock", Domain: "switch", State: "on", FriendlyName: "Child lock"},
+		"media_player.tv":    {EntityID: "media_player.tv", Domain: "media_player", State: "playing", FriendlyName: "TV"},
+		"vacuum.bot":         {EntityID: "vacuum.bot", Domain: "vacuum", State: "unavailable", FriendlyName: "Bot"},
+	}
+	cfg := defaultClassificationConfig()
+	cfg.DeviceDomains = []string{"fan", "climate", "switch", "media_player", "vacuum"}
+	cfg.DeviceExclude = []string{"switch.child_lock"}
+
+	cards := BuildModel(rooms, states, cfg)
+	card, ok := findCard(cards, "Office")
+	if !ok {
+		t.Fatal("Office card missing — devices alone must keep a room")
+	}
+	want := map[string][2]interface{}{
+		"fan.desk":           {true, "fan"},
+		"climate.ac":         {true, "heat"},
+		"switch.heater_plug": {false, ""},
+		"media_player.tv":    {true, ""},
+	}
+	if len(card.Devices) != len(want) {
+		t.Fatalf("devices = %+v, want %d (child_lock excluded, unavailable vacuum skipped)", card.Devices, len(want))
+	}
+	for _, d := range card.Devices {
+		w, ok := want[d.EntityID]
+		if !ok {
+			t.Errorf("unexpected device %s", d.EntityID)
+			continue
+		}
+		if d.On != w[0].(bool) || d.Effect != w[1].(string) {
+			t.Errorf("%s: on=%v effect=%q, want on=%v effect=%q", d.EntityID, d.On, d.Effect, w[0], w[1])
+		}
+	}
+	if card.Weight != 4 {
+		t.Errorf("weight = %d, want 4 (one per device)", card.Weight)
+	}
+}
+
+func TestDeviceEffect_ClimateWithoutHvacActionUsesMode(t *testing.T) {
+	cases := []struct {
+		state, want string
+		on          bool
+	}{{"cool", "fan", true}, {"heat", "heat", true}, {"off", "", false}, {"auto", "", true}}
+	for _, c := range cases {
+		on, eff := DeviceEffect(EntityState{Domain: "climate", State: c.state})
+		if on != c.on || eff != c.want {
+			t.Errorf("climate %q: on=%v effect=%q, want on=%v effect=%q", c.state, on, eff, c.on, c.want)
+		}
+	}
+}

@@ -98,6 +98,7 @@ type EntityState struct {
 	FriendlyName string
 	DeviceClass  string
 	Icon         string
+	HvacAction   string // climate only: "heating", "cooling", "fan", "idle", ...
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -125,6 +126,7 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			FriendlyName string `json:"friendly_name"`
 			DeviceClass  string `json:"device_class"`
 			Icon         string `json:"icon"`
+			HvacAction   string `json:"hvac_action"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -149,6 +151,7 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			FriendlyName: name,
 			DeviceClass:  s.Attributes.DeviceClass,
 			Icon:         s.Attributes.Icon,
+			HvacAction:   s.Attributes.HvacAction,
 		}
 	}
 	return states, nil

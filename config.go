@@ -19,8 +19,15 @@ type Config struct {
 	Temperature   TemperatureConfig   `yaml:"temperature"`
 	Live          LiveConfig          `yaml:"live"`
 	Sensors       SensorsConfig       `yaml:"sensors"`
+	Devices       DevicesConfig       `yaml:"devices"`
 	Layout        string              `yaml:"layout"`
 	Floorplan     FloorplanConfig     `yaml:"floorplan"`
+}
+
+// DevicesConfig picks which non-light entities get a tile on the map.
+type DevicesConfig struct {
+	Domains []string `yaml:"domains"` // env: DEVICES_DOMAINS
+	Exclude []string `yaml:"exclude"` // env: DEVICES_EXCLUDE — entity_ids to skip
 }
 
 type FloorplanConfig struct {
@@ -97,6 +104,11 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if len(cfg.Sensors.MotionDeviceClasses) == 0 {
 		cfg.Sensors.MotionDeviceClasses = []string{"motion", "occupancy"}
+	}
+	if len(cfg.Devices.Domains) == 0 {
+		// "switch" is deliberately not here: in practice most switches are a
+		// light's second channel or a config toggle; opt in per install.
+		cfg.Devices.Domains = []string{"fan", "climate", "humidifier", "water_heater", "media_player", "vacuum", "cover", "lock"}
 	}
 
 	if cfg.HomeAssistant.URL == "" {
@@ -233,6 +245,12 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("SENSORS_MOTION_DEVICE_CLASSES"); ok {
 		cfg.Sensors.MotionDeviceClasses = splitEnvList(v)
+	}
+	if v, ok := lookupNonEmptyEnv("DEVICES_DOMAINS"); ok {
+		cfg.Devices.Domains = splitEnvList(v)
+	}
+	if v, ok := lookupNonEmptyEnv("DEVICES_EXCLUDE"); ok {
+		cfg.Devices.Exclude = splitEnvList(v)
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT"); ok {
 		cfg.Layout = v

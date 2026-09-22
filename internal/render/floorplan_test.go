@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -100,7 +101,9 @@ func TestRenderWidget_FloorplanLayout(t *testing.T) {
 		`<span class="ha-fp-name">Bedroom</span>`,
 		`<span class="ha-fp-temp">22°<span class="ha-fp-trend" data-trend="up">↑</span></span>`,
 		`data-entity-id="light.lr_main" data-on="true"`,
-		`class="ha-occ-chip ha-fp-motion" data-sensor-name="LR Motion" data-occupied="true"`,
+		`data-slot="t" class="ha-light" data-entity-id="light.lr_main"`,
+		`data-slot="b" class="ha-occ-chip ha-fp-motion" data-sensor-name="LR Motion" data-occupied="true"`,
+		`data-slot="l" class="ha-badge" data-sensor-name="LR Window"`,
 		`class="ha-fp-icons"`,
 		`data-sensor-name="LR Window" data-open="true"`,
 		// Mapped rooms with no HA data still get drawn, empty, so the map keeps its shape.
@@ -183,6 +186,23 @@ func TestFloorplanCSS_LightSpill(t *testing.T) {
 	for _, want := range []string{`.ha-fp-icons .ha-light[data-on="true"]::before{opacity:1`, `overflow:hidden`} {
 		if !strings.Contains(floorplanCSS, want) {
 			t.Errorf("floorplan CSS missing %q", want)
+		}
+	}
+}
+
+func TestRenderFloorplanRoom_DevicesAndSlotOverflow(t *testing.T) {
+	r := RoomCardView{Room: "R"}
+	for i := 0; i < 9; i++ {
+		r.Devices = append(r.Devices, DeviceView{EntityID: fmt.Sprintf("fan.%d", i), Name: "Fan", IconSVG: "<svg/>", On: i == 0, Effect: "fan"})
+	}
+	html := renderFloorplanRoom("k", r)
+	for _, want := range []string{
+		`data-slot="t" class="ha-device" data-entity-id="fan.0" data-on="true" data-effect="fan" title="Fan"`,
+		`data-slot="br" class="ha-device" data-entity-id="fan.7"`,
+		`data-slot="c" class="ha-device" data-entity-id="fan.8"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q in %s", want, html)
 		}
 	}
 }

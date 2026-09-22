@@ -21,18 +21,75 @@ type SensorEntity struct {
 	Label     string
 }
 
+// Device is any non-light, non-sensor entity worth a tile on the map: a
+// fan, a climate unit, a media player, a vacuum, ... Effect says what it
+// pushes into the room while On: "fan" (cool air), "heat" (warm air) or
+// "" (nothing animated).
+type Device struct {
+	EntityID string
+	Name     string
+	Domain   string
+	Icon     string
+	On       bool
+	Effect   string
+}
+
 type RoomCard struct {
 	Room        string
 	Temperature *TemperatureRoom
 	Lights      []Light
 	Occupancy   []SensorEntity
 	Contacts    []SensorEntity
+	Devices     []Device
 	Weight      int
 }
 
 type ClassificationConfig struct {
 	ContactDeviceClasses []string
 	MotionDeviceClasses  []string
+	// DeviceDomains lists the HA domains that become Device tiles.
+	// DeviceExclude drops specific entity_ids from that (a switch that is
+	// really a light's second channel, a "do not disturb" toggle, ...).
+	DeviceDomains []string
+	DeviceExclude []string
+}
+
+// DeviceEffect decides what a device visibly pushes into the room.
+// Exported so the classification is testable on its own.
+func DeviceEffect(state EntityState) (on bool, effect string) {
+	switch state.Domain {
+	case "fan":
+		return state.State == "on", "fan"
+	case "climate":
+		switch state.HvacAction {
+		case "heating":
+			return true, "heat"
+		case "cooling", "fan", "drying":
+			return true, "fan"
+		}
+		// No hvac_action reported: treat any mode other than off as "on"
+		// and pick the effect from the mode itself.
+		switch state.State {
+		case "heat":
+			return true, "heat"
+		case "cool", "fan_only", "dry":
+			return true, "fan"
+		case "off", "unavailable", "unknown", "":
+			return false, ""
+		}
+		return true, ""
+	case "water_heater":
+		return state.State != "off" && state.State != "unavailable" && state.State != "unknown", "heat"
+	case "cover":
+		return state.State == "open" || state.State == "opening", ""
+	case "lock":
+		return state.State == "unlocked", ""
+	case "vacuum":
+		return state.State == "cleaning" || state.State == "returning", ""
+	case "media_player":
+		return state.State == "playing", ""
+	}
+	return state.State == "on", ""
 }
 
 func contains(list []string, v string) bool {
@@ -49,6 +106,7 @@ type roomBuilder struct {
 	lights    []Light
 	occupancy []SensorEntity
 	contacts  []SensorEntity
+	devices   []Device
 }
 
 // BuildModel classifies each area's entities into a per-room card:
@@ -108,16 +166,30 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					label = "Occupied"
 				}
 				b.occupancy = append(b.occupancy, SensorEntity{Room: room.Name, Name: state.FriendlyName, Attention: attention, Label: label})
+
+			case contains(cfg.DeviceDomains, state.Domain) && !contains(cfg.DeviceExclude, entityID):
+				if state.State == "unavailable" || state.State == "unknown" {
+					continue
+				}
+				on, effect := DeviceEffect(state)
+				b.devices = append(b.devices, Device{
+					EntityID: entityID,
+					Name:     state.FriendlyName,
+					Domain:   state.Domain,
+					Icon:     state.Icon,
+					On:       on,
+					Effect:   effect,
+				})
 			}
 		}
 	}
 
 	cards := make([]RoomCard, 0, len(byRoom))
 	for name, b := range byRoom {
-		if b.temp == nil && len(b.lights) == 0 && len(b.occupancy) == 0 && len(b.contacts) == 0 {
+		if b.temp == nil && len(b.lights) == 0 && len(b.occupancy) == 0 && len(b.contacts) == 0 && len(b.devices) == 0 {
 			continue
 		}
-		weight := len(b.lights)
+		weight := len(b.lights) + len(b.devices)
 		if b.temp != nil {
 			weight += 2
 		}
@@ -133,6 +205,7 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 			Lights:      b.lights,
 			Occupancy:   b.occupancy,
 			Contacts:    b.contacts,
+			Devices:     b.devices,
 			Weight:      weight,
 		})
 	}

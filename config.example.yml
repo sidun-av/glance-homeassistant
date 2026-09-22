@@ -27,6 +27,10 @@ sensors:
   contact_device_classes: [door, window, garage_door, opening]   # env: SENSORS_CONTACT_DEVICE_CLASSES (comma-separated)
   motion_device_classes: [motion, occupancy]   # env: SENSORS_MOTION_DEVICE_CLASSES (comma-separated)
 
+devices:
+  domains: [fan, climate, humidifier, water_heater, media_player, vacuum, cover, lock]   # env: DEVICES_DOMAINS — HA domains shown as tiles on the floorplan; add "switch" to opt in
+  exclude: []   # env: DEVICES_EXCLUDE — entity_ids to skip, e.g. [switch.usb_light_l2]
+
 layout: cards   # env: LAYOUT — "cards" (per-room cards with temperature chart) or "floorplan" (schematic map, badges only)
 
 # Only used when layout: floorplan. The grid is CSS grid-template-areas in

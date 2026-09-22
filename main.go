@@ -152,6 +152,15 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 	for _, c := range card.Contacts {
 		view.Contacts = append(view.Contacts, render.SensorBadgeView{Name: c.Name, Attention: c.Attention, Label: c.Label})
 	}
+	for _, d := range card.Devices {
+		view.Devices = append(view.Devices, render.DeviceView{
+			EntityID: d.EntityID,
+			Name:     d.Name,
+			IconSVG:  render.DeviceIcon(d.Domain, d.Icon),
+			On:       d.On,
+			Effect:   d.Effect,
+		})
+	}
 	return view
 }
 
@@ -167,6 +176,8 @@ func (a *app) buildModel(ctx context.Context) ([]hass.RoomCard, error) {
 	return hass.BuildModel(rooms, states, hass.ClassificationConfig{
 		ContactDeviceClasses: a.cfg.Sensors.ContactDeviceClasses,
 		MotionDeviceClasses:  a.cfg.Sensors.MotionDeviceClasses,
+		DeviceDomains:        a.cfg.Devices.Domains,
+		DeviceExclude:        a.cfg.Devices.Exclude,
 	}), nil
 }
 

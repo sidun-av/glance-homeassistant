@@ -2,6 +2,7 @@ package render
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +81,15 @@ func TestRenderLive_RoomWithOnlyLightsOmitsNullOccupancyAndContacts(t *testing.T
 	}
 	if !contains(string(body), `"occupancy":[]`) || !contains(string(body), `"contacts":[]`) {
 		t.Errorf("body = %s, want empty (not null) occupancy/contacts arrays", body)
+	}
+}
+
+func TestRenderLive_IncludesDevices(t *testing.T) {
+	out, err := RenderLive([]RoomCardView{{Room: "R", Devices: []DeviceView{{EntityID: "fan.x", On: true, Effect: "fan"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"devices":[{"entity_id":"fan.x","on":true,"effect":"fan"}]`) {
+		t.Errorf("payload: %s", out)
 	}
 }

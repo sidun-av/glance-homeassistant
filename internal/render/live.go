@@ -13,11 +13,18 @@ type LiveSensor struct {
 	Label     string `json:"label"`
 }
 
+type LiveDevice struct {
+	EntityID string `json:"entity_id"`
+	On       bool   `json:"on"`
+	Effect   string `json:"effect"`
+}
+
 type LiveRoom struct {
 	Room      string       `json:"room"`
 	Lights    []LiveLight  `json:"lights"`
 	Occupancy []LiveSensor `json:"occupancy"`
 	Contacts  []LiveSensor `json:"contacts"`
+	Devices   []LiveDevice `json:"devices"`
 }
 
 type LivePayload struct {
@@ -32,7 +39,7 @@ type LivePayload struct {
 func RenderLive(rooms []RoomCardView) ([]byte, error) {
 	payload := LivePayload{Rooms: []LiveRoom{}}
 	for _, r := range rooms {
-		if len(r.Lights) == 0 && len(r.Occupancy) == 0 && len(r.Contacts) == 0 {
+		if len(r.Lights) == 0 && len(r.Occupancy) == 0 && len(r.Contacts) == 0 && len(r.Devices) == 0 {
 			continue
 		}
 		lr := LiveRoom{
@@ -40,6 +47,10 @@ func RenderLive(rooms []RoomCardView) ([]byte, error) {
 			Lights:    make([]LiveLight, len(r.Lights)),
 			Occupancy: make([]LiveSensor, len(r.Occupancy)),
 			Contacts:  make([]LiveSensor, len(r.Contacts)),
+			Devices:   make([]LiveDevice, len(r.Devices)),
+		}
+		for i, d := range r.Devices {
+			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect}
 		}
 		for i, l := range r.Lights {
 			lr.Lights[i] = LiveLight{EntityID: l.EntityID, On: l.On}

@@ -48,6 +48,18 @@ computed in `main.go` as current bucket vs the most recent earlier bucket
 with a reading, threshold 0.3°; rendered red `↑` (`--color-negative`) or
 blue `↓`.
 
+Second round (same day, from feedback on the first deploy): tiles sit on
+a virtual 3×3 grid inside the room, wall slots first (`t b l r tl tr bl
+br`, then `c`), hugging their wall; each tile's flow is a cone (`::before`
+body, `::after` moving wave stripes for air) rotated by a per-slot `--dir`
+toward the room centre and sized in container units (`--len`: `50cqh`,
+`50cqw`, `70cqmin`) so it ends at the centre. Occupancy became an mdi:run
+figure. `floorplan.max_width` caps the map. New `devices` category
+(`hass.Device`, `devices.domains`/`devices.exclude`): non-light entities
+by domain with real MDI glyphs; `hass.DeviceEffect` maps state to
+on/off + effect (`fan` blue, `heat` orange). Live payload gained
+`devices`; the bootstrap script patches `.ha-device[data-entity-id]`.
+
 ## Rendering
 
 `RenderWidget` gains a branch on `WidgetData.Layout`:

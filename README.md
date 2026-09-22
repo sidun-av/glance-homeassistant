@@ -43,11 +43,23 @@ floorplan:
 ```
 
 Each room shows its name, and — only where the room has that data — the current temperature
-with a trend arrow (red ↑ rising, blue ↓ falling over roughly the last 4 hours, ≥0.2°), and a
-centred grid of icons: its lights (a lit lamp casts a warm glow that spreads from the icon and
-fades before the walls), a running figure per motion/occupancy sensor (accent-coloured while
-motion is detected, faint otherwise), and a door icon per contact sensor. An occupied room also
-gets a thin accent outline. `max_width` caps the map's size so it does not swallow a wide column. No temperature chart. Colours all come
+with a trend arrow (red ↑ rising, blue ↓ falling over roughly the last 4 hours, ≥0.2°), and its
+entities as tiles on a virtual 3×3 grid: tiles take the wall slots first (top, bottom, left,
+right, then the corners) and hug that wall; only a ninth tile lands in the centre. Every source
+casts a beam toward the room's centre, sized to stop there whatever the room's shape:
+
+- **Lights** — a lit lamp throws a warm spotlight cone (bright at the lamp, fading at the centre).
+- **Devices** (`devices.domains`, default fans, climate, humidifiers, water heaters, media
+  players, vacuums, covers, locks — real MDI icons per domain, or the entity's own `mdi:` icon
+  when it is one we ship): a running `fan`, or a `climate` unit that is cooling/fanning, blows a
+  blue stream with moving waves and the fan icon spins; a heating `climate`/`water_heater` blows an
+  orange one. Other devices just light up while active (playing, cleaning, open, unlocked, on).
+  `switch` is off by default because most switches are a light's second channel or a config
+  toggle — add it to `devices.domains` and prune with `devices.exclude` if you want them.
+- A running figure per motion/occupancy sensor (accent-coloured while motion is detected, faint
+  otherwise), and a door icon per contact sensor. An occupied room also gets a thin accent outline.
+
+`max_width` caps the map's size so it does not swallow a wide column. No temperature chart. Colours all come
 from Glance's theme variables, so it follows whatever theme the dashboard runs. The map's height
 follows its width via `aspect_ratio` (default: square cells, i.e. `columns/rows`). Live updates
 work exactly as in the cards layout.
@@ -156,6 +168,8 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `TEMPERATURE_MAX_POINTS` | `temperature.max_points` | `60` | Points per room's temperature series (resolution) |
 | `TEMPERATURE_CHART_HEIGHT` | `temperature.chart_height` | `130` | Base minimum room-card height in px — cards with more to show (lights, occupancy, contact) grow taller automatically |
 | `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `bars` | `bars` (WEATHER-widget bar chart) or `sparkline` |
+| `DEVICES_DOMAINS` | `devices.domains` | `fan,climate,humidifier,water_heater,media_player,vacuum,cover,lock` | HA domains that get a device tile (floorplan). Add `switch` to opt in. |
+| `DEVICES_EXCLUDE` | `devices.exclude` | — | entity_ids to skip even if their domain is listed |
 | `LAYOUT` | `layout` | `cards` | `cards` or `floorplan` (see "Floorplan layout") |
 | `FLOORPLAN_GRID` | `floorplan.grid` | — | rows joined with `;`, e.g. `bedroom bedroom kitchen;bath hall kitchen` |
 | `FLOORPLAN_ROOMS` | `floorplan.rooms` | — | `key=Area Name,key2=Area 2` |
