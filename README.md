@@ -67,8 +67,11 @@ Hover the widget and click the gear in its top-right corner (or open `<public_ur
 `https://your-glance/ha-widget/edit`). The editor lets you:
 
 - set the map's size in cells, its aspect ratio and max width;
-- add, rename and delete rooms, assign each to a Home Assistant Area, and paint its cells on the
-  map (click/drag; Alt-click removes a cell; rooms stay solid rectangles);
+- add, rename and delete rooms, assign each to a Home Assistant Area, and shape them on the map:
+  paint cells (click/drag; Alt-click removes a cell), drag the handles on the selected room's edges
+  to resize it, or drag a room by its name to move it. Rooms stay solid rectangles; a neighbour in
+  the way is trimmed to its largest remaining rectangle (freed cells stay empty until you paint
+  them), and a change that would erase a room entirely is refused;
 - set each room's inner grid and drag the room's entities onto cells — an edge cell hugs that wall
   and beams toward the centre, the centre cell casts no beam; drag back to the list to unplace,
   ⊘ to hide an entity from the map; "show all" lists the Area's other entities too;

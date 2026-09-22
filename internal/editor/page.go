@@ -29,7 +29,16 @@ section{background:var(--panel);border:1px solid var(--border);border-radius:8px
 section h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
 .row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:10px}
 .row label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+#mapWrap{position:relative;max-width:100%}
 #map{display:grid;gap:3px;background:var(--border);padding:3px;border-radius:6px;user-select:none;aspect-ratio:var(--aspect,1.15);max-width:100%}
+#map .cell .grip{cursor:move;padding:1px 6px;margin:-3px -5px;border-radius:3px;background:rgba(0,0,0,.18)}
+#map .cell .grip:hover{background:var(--accent);color:#111}
+.h{position:absolute;z-index:3;background:var(--accent);opacity:.55;border-radius:3px}
+.h:hover,.h.active{opacity:1}
+.h.t,.h.b{height:6px;cursor:ns-resize}
+.h.l,.h.r{width:6px;cursor:ew-resize}
+body.dragging{cursor:grabbing}
+body.dragging *{cursor:inherit!important}
 #map .cell{background:var(--bg);border-radius:3px;min-height:18px;position:relative;cursor:crosshair;display:flex;align-items:flex-start;padding:3px 5px;font-size:11px;color:var(--hi);overflow:hidden;white-space:nowrap}
 #map .cell.room{background:var(--rc)}
 #map .cell.sel{outline:2px solid var(--accent);outline-offset:-2px}
@@ -73,10 +82,10 @@ section h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:va
       <label>aspect <input type="text" id="aspect" size="6" placeholder="1.15"></label>
       <label>max width px <input type="number" id="maxw" min="0" step="10"></label>
     </div>
-    <p class="hint">Select a room, then click or drag over cells to paint it (⌥/Alt-click removes a cell). Painting keeps each room one solid rectangle and takes cells over from other rooms.</p>
+    <p class="hint">Select a room, then paint cells (click/drag; ⌥/Alt-click removes), drag the blue handles on its edges to resize, or drag it by its name to move it. Rooms stay solid rectangles; a change that would break another room is refused.</p>
     <div id="rooms"></div>
     <div class="row"><button id="btnAddRoom">+ room</button></div>
-    <div id="map"></div>
+    <div id="mapWrap"><div id="map"></div></div>
   </section>
   <section>
     <h2>Room <span id="roomTitle"></span></h2>
@@ -150,13 +159,87 @@ function renderMap(){
   for(let r=0;r<L.rows;r++)for(let c=0;c<L.columns;c++){
     const cell=document.createElement("div");cell.className="cell";const o=owner(r,c);
     if(o>=0){cell.classList.add("room");cell.style.setProperty("--rc",color(o)+"55");if(o===state.sel)cell.classList.add("sel");
-      const rm=L.rooms[o];const first=rm.cells[0];if(first[0]===r&&first[1]===c)cell.textContent=rm.name||rm.area||rm.key;}
+      const rm=L.rooms[o];const first=rm.cells[0];
+      if(first[0]===r&&first[1]===c){const g=document.createElement("span");g.className="grip";g.textContent=rm.name||rm.area||rm.key;g.title="drag to move the room";
+        g.addEventListener("mousedown",e=>{e.preventDefault();e.stopPropagation();state.sel=o;renderRooms();renderMap();renderRoom();startMove(e);});cell.appendChild(g);}}
     cell.addEventListener("mousedown",e=>{e.preventDefault();state.painting=true;paint(r,c,e.altKey);});
     cell.addEventListener("mouseenter",()=>{if(state.painting)paint(r,c,false);});
     map.appendChild(cell);
   }
+  renderHandles();
 }
 document.addEventListener("mouseup",()=>state.painting=false);
+
+// --- resize handles + move: whole-cell steps, rectangle preserved ---
+function cellEl(r,c){return $("#map").children[r*state.layout.columns+c];}
+function renderHandles(){
+  document.querySelectorAll("#mapWrap .h").forEach(h=>h.remove());
+  const rm=room();if(!rm||!rm.cells.length)return;
+  const [r0,c0,r1,c1]=bounds(rm.cells);const wrap=$("#mapWrap").getBoundingClientRect();
+  const a=cellEl(r0,c0).getBoundingClientRect(),b=cellEl(r1,c1).getBoundingClientRect();
+  const L=a.left-wrap.left,T=a.top-wrap.top,R=b.right-wrap.left,B=b.bottom-wrap.top;
+  const mk=(cls,st)=>{const h=document.createElement("div");h.className="h "+cls;Object.assign(h.style,st);h.addEventListener("mousedown",e=>{e.preventDefault();e.stopPropagation();startResize(e,cls,h);});$("#mapWrap").appendChild(h);};
+  mk("t",{left:L+8+"px",width:(R-L-16)+"px",top:(T-3)+"px"});
+  mk("b",{left:L+8+"px",width:(R-L-16)+"px",top:(B-3)+"px"});
+  mk("l",{top:T+8+"px",height:(B-T-16)+"px",left:(L-3)+"px"});
+  mk("r",{top:T+8+"px",height:(B-T-16)+"px",left:(R-3)+"px"});
+}
+function cellStep(){const a=cellEl(0,0).getBoundingClientRect();const w=state.layout.columns>1?cellEl(0,1).getBoundingClientRect().left-a.left:a.width+3;const h=state.layout.rows>1?cellEl(1,0).getBoundingClientRect().top-a.top:a.height+3;return [w,h];}
+function dragSession(e,onDelta){
+  const [sw,sh]=cellStep();const x0=e.clientX,y0=e.clientY;document.body.classList.add("dragging");
+  let last=[0,0];
+  const move=ev=>{const d=[Math.round((ev.clientX-x0)/sw),Math.round((ev.clientY-y0)/sh)];if(d[0]===last[0]&&d[1]===last[1])return;last=d;onDelta(d[0],d[1]);};
+  const up=()=>{document.removeEventListener("mousemove",move);document.removeEventListener("mouseup",up);document.body.classList.remove("dragging");renderMap();};
+  document.addEventListener("mousemove",move);document.addEventListener("mouseup",up);
+}
+function startResize(e,side,h){
+  const rm=room();const start=bounds(rm.cells);h.classList.add("active");
+  dragSession(e,(dc,dr)=>{
+    let [r0,c0,r1,c1]=start;
+    if(side==="t")r0=Math.min(r0+dr,r1);if(side==="b")r1=Math.max(r1+dr,r0);
+    if(side==="l")c0=Math.min(c0+dc,c1);if(side==="r")c1=Math.max(c1+dc,c0);
+    applyRect(state.sel,[r0,c0,r1,c1]);
+  });
+}
+function startMove(e){
+  const rm=room();const start=bounds(rm.cells);const L=state.layout;
+  dragSession(e,(dc,dr)=>{
+    const h=start[2]-start[0],w=start[3]-start[1];
+    const r0=Math.max(0,Math.min(L.rows-1-h,start[0]+dr)),c0=Math.max(0,Math.min(L.columns-1-w,start[1]+dc));
+    applyRect(state.sel,[r0,c0,r0+h,c0+w]);
+  });
+}
+// applyRect gives room idx the rectangle and takes those cells from the
+// others. A neighbour that would be left non-rectangular is trimmed to its
+// largest remaining rectangle instead (the cut-off cells become free), so
+// dragging a wall "pushes" the neighbour the way a real splitter would.
+// Refused only if a neighbour would vanish entirely.
+function applyRect(idx,[r0,c0,r1,c1]){
+  const L=state.layout;
+  if(r0<0||c0<0||r1>=L.rows||c1>=L.columns)return false;
+  const rect=[];for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++)rect.push([r,c]);
+  const inRect=([r,c])=>r>=r0&&r<=r1&&c>=c0&&c<=c1;
+  const others=[];
+  for(let i=0;i<L.rooms.length;i++){
+    if(i===idx){others.push(null);continue;}
+    const o=L.rooms[i];let cells=o.cells.filter(x=>!inRect(x));
+    if(cells.length===o.cells.length){others.push(cells);continue;}
+    if(cells.length&&!isRect(cells)){
+      const [nr0,nc0,nr1,nc1]=bounds(o.cells);
+      const cands=[[nr0,nc0,nr1,c0-1],[nr0,c1+1,nr1,nc1],[nr0,nc0,r0-1,nc1],[r1+1,nc0,nr1,nc1]]
+        .map(([a,b,c,d])=>[Math.max(a,nr0),Math.max(b,nc0),Math.min(c,nr1),Math.min(d,nc1)])
+        .filter(([a,b,c,d])=>a<=c&&b<=d);
+      if(!cands.length)cells=[];
+      else{const best=cands.reduce((p,q)=>((q[2]-q[0]+1)*(q[3]-q[1]+1)>(p[2]-p[0]+1)*(p[3]-p[1]+1)?q:p));
+        cells=[];for(let r=best[0];r<=best[2];r++)for(let c=best[1];c<=best[3];c++)cells.push([r,c]);}
+    }
+    if(!cells.length){msg("Can't: room “"+(o.name||o.area||o.key)+"” would disappear");return false;}
+    others.push(cells);
+  }
+  L.rooms.forEach((o,i)=>{if(i!==idx)o.cells=others[i];});
+  L.rooms[idx].cells=rect;msg("");renderMap();return true;
+}
+window.addEventListener("resize",renderHandles);
 // paint adds (r,c) to the selected room if the result is still a rectangle;
 // alt-click removes a cell. Cells owned by another room are taken over.
 function paint(r,c,remove){
