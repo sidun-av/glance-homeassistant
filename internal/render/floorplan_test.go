@@ -220,3 +220,48 @@ func TestRenderFloorplanRoom_DevicesAndSlotOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPlacedRoom(t *testing.T) {
+	r := RoomCardView{Room: "Bedroom",
+		Lights:   []LightView{{EntityID: "light.a", IconSVG: "<svg/>", On: true}, {EntityID: "light.b", IconSVG: "<svg/>"}, {EntityID: "light.hidden", IconSVG: "<svg/>"}},
+		Contacts: []SensorBadgeView{{Name: "Door", Label: "Closed"}}}
+	p := RoomPlacement{Rows: 3, Columns: 3, Name: "Спальня",
+		Cells:  map[string][2]int{"light.a": {0, 0}, "Door": {1, 1}},
+		Hidden: map[string]bool{"light.hidden": true}}
+	html := renderPlacedRoom("bedroom", r, p)
+	for _, want := range []string{
+		`<span class="ha-fp-name">Спальня</span>`,
+		`class="ha-fp-icons ha-fp-placed" style="--reach:0.70;grid-template-rows:repeat(3,1fr);grid-template-columns:repeat(3,1fr)"`,
+		`style="grid-area:1/1;place-self:start start;--dir:-45deg;--len:calc(max(33.33cqw,33.33cqh) + 0.41 * min(33.33cqw,33.33cqh))" class="ha-light" data-entity-id="light.a"`,
+		`data-slot="t" class="ha-light" data-entity-id="light.b"`, // unplaced → first wall slot
+		`style="grid-area:2/2;place-self:center center;--dir:0deg;--len:0px" class="ha-badge" data-sensor-name="Door"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q in\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, "light.hidden") {
+		t.Error("hidden entity must not render")
+	}
+}
+
+func TestPlacedTileStyle_Directions(t *testing.T) {
+	cases := map[[2]int]string{{0, 1}: "--dir:0deg", {2, 1}: "--dir:180deg", {1, 0}: "--dir:-90deg", {1, 2}: "--dir:90deg", {2, 2}: "--dir:135deg"}
+	for cell, want := range cases {
+		if got := placedTileStyle(cell, 3, 3); !strings.Contains(got, want) {
+			t.Errorf("%v: %s (want %s)", cell, got, want)
+		}
+	}
+}
+
+func TestRenderWidget_FloorplanGear(t *testing.T) {
+	fp, _ := ParseFloorplan([]string{"a"}, map[string]string{"a": "A"})
+	data := WidgetData{Layout: "floorplan", Floorplan: fp, EditURL: "/ha-widget/edit"}
+	if !strings.Contains(RenderWidget(data), `<a class="ha-fp-edit" href="/ha-widget/edit"`) {
+		t.Error("gear link missing")
+	}
+	data.EditURL = ""
+	if strings.Contains(RenderWidget(data), "ha-fp-edit\" href") {
+		t.Error("no gear without EditURL")
+	}
+}

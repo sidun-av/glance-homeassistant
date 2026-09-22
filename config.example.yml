@@ -31,7 +31,8 @@ devices:
   domains: [fan, climate, humidifier, water_heater, media_player, vacuum, cover, lock]   # env: DEVICES_DOMAINS — HA domains shown as tiles on the floorplan; add "switch" to opt in
   exclude: []   # env: DEVICES_EXCLUDE — entity_ids to skip, e.g. [switch.usb_light_l2]
 
-layout: cards   # env: LAYOUT — "cards" (per-room cards with temperature chart) or "floorplan" (schematic map, badges only)
+layout: cards
+layout_file: /data/floorplan.json   # env: LAYOUT_FILE — the browser editor (<public_url>/edit) saves here; overrides floorplan: below when present   # env: LAYOUT — "cards" (per-room cards with temperature chart) or "floorplan" (schematic map, badges only)
 
 # Only used when layout: floorplan. The grid is CSS grid-template-areas in
 # YAML: one string per row, keys separated by spaces, "." for an empty cell.

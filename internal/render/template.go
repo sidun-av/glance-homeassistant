@@ -45,6 +45,7 @@ type RoomCardView struct {
 
 type WidgetData struct {
 	Layout          string     // "" or "cards" → room cards; "floorplan" → schematic map
+	EditURL         string     // floorplan only: href of the hover gear that opens the editor ("" = no gear)
 	Floorplan       *Floorplan // required when Layout == "floorplan"
 	Rooms           []RoomCardView
 	CardMinHeight   int
@@ -280,6 +281,9 @@ func RenderWidget(data WidgetData) string {
 	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span><span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
 
 	if data.Layout == "floorplan" && data.Floorplan != nil {
+		if data.EditURL != "" {
+			fmt.Fprintf(&b, `<a class="ha-fp-edit" href="%s" title="Edit floorplan" aria-label="Edit floorplan">&#9881;</a>`, html.EscapeString(data.EditURL))
+		}
 		b.WriteString(renderFloorplan(data))
 	} else if len(data.Rooms) == 0 {
 		b.WriteString(`<div class="ha-empty">no rooms with a temperature sensor, light, or sensor found</div>`)

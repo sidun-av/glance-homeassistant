@@ -10,9 +10,12 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/sidun-av/glance-homeassistant/internal/editor"
 	"github.com/sidun-av/glance-homeassistant/internal/hass"
+	"github.com/sidun-av/glance-homeassistant/internal/layout"
 	"github.com/sidun-av/glance-homeassistant/internal/render"
 )
 
@@ -21,11 +24,179 @@ type app struct {
 	cfg    *Config
 	cache  *hass.AreaCache
 	client *hass.Client
+
+	// Floorplan state: the config-defined seed, and (when a saved layout
+	// exists) the editor's layout and the floorplan rendered from it.
+	fpMu   sync.RWMutex
+	seed   *layout.Layout
+	layout *layout.Layout
+	fp     *render.Floorplan
 }
 
 func newApp(cfg *Config) *app {
 	client := hass.New(cfg.HomeAssistant.URL, cfg.HomeAssistant.Token)
-	return &app{cfg: cfg, cache: hass.NewAreaCache(client, 5*time.Minute), client: client}
+	a := &app{cfg: cfg, cache: hass.NewAreaCache(client, 5*time.Minute), client: client, fp: cfg.Floorplan.Parsed}
+	if cfg.Floorplan.Parsed != nil {
+		a.seed = layout.FromFloorplan(cfg.Floorplan.Parsed)
+		a.layout = a.seed
+	}
+	return a
+}
+
+// loadSavedLayout applies the layout file, if any, over the config seed.
+func (a *app) loadSavedLayout() error {
+	if a.cfg.LayoutFile == "" {
+		return nil
+	}
+	l, err := layout.Load(a.cfg.LayoutFile)
+	if err != nil {
+		return err
+	}
+	if l == nil {
+		return nil
+	}
+	fp, err := l.ToFloorplan()
+	if err != nil {
+		return fmt.Errorf("%s: %w", a.cfg.LayoutFile, err)
+	}
+	a.fpMu.Lock()
+	a.layout, a.fp = l, fp
+	a.fpMu.Unlock()
+	log.Printf("floorplan: using saved layout %s (%d rooms)", a.cfg.LayoutFile, len(l.Rooms))
+	return nil
+}
+
+func (a *app) currentFloorplan() *render.Floorplan {
+	a.fpMu.RLock()
+	defer a.fpMu.RUnlock()
+	return a.fp
+}
+
+// editURL is where the widget's hover gear points: the editor page, under
+// public_url so it resolves through the same route the browser already
+// uses for live.json.
+func editURL(publicURL string) string {
+	if publicURL == "" {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + "/edit"
+}
+
+// --- editor.Store / editor.Source ---
+
+func (a *app) Current() *layout.Layout {
+	a.fpMu.RLock()
+	defer a.fpMu.RUnlock()
+	if a.layout == nil {
+		return &layout.Layout{Version: 1, Columns: 4, Rows: 4}
+	}
+	return a.layout
+}
+
+func (a *app) Seed() *layout.Layout {
+	if a.seed == nil {
+		return &layout.Layout{Version: 1, Columns: 4, Rows: 4}
+	}
+	return a.seed
+}
+
+func (a *app) Save(l *layout.Layout) error {
+	if err := l.Validate(); err != nil {
+		return err
+	}
+	fp, err := l.ToFloorplan()
+	if err != nil {
+		return err
+	}
+	if a.cfg.LayoutFile == "" {
+		return fmt.Errorf("layout_file is not configured, nowhere to save")
+	}
+	if err := layout.Save(a.cfg.LayoutFile, l); err != nil {
+		return fmt.Errorf("write %s: %w", a.cfg.LayoutFile, err)
+	}
+	a.fpMu.Lock()
+	a.layout, a.fp = l, fp
+	a.fpMu.Unlock()
+	log.Printf("floorplan: saved layout %s (%d rooms)", a.cfg.LayoutFile, len(l.Rooms))
+	return nil
+}
+
+func (a *app) Preview(l *layout.Layout) (string, error) {
+	fp, err := l.ToFloorplan()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	html, err := a.widgetHTML(ctx, fp, "")
+	if err != nil {
+		return "", err
+	}
+	return html, nil
+}
+
+func (a *app) Areas(ctx context.Context) ([]editor.Area, error) {
+	rooms, err := a.cache.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch areas: %w", err)
+	}
+	states, err := a.client.FetchStates(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch states: %w", err)
+	}
+	var out []editor.Area
+	for _, room := range rooms {
+		area := editor.Area{ID: room.ID, Name: room.Name, Entities: []editor.Entity{}}
+		for _, id := range room.EntityIDs {
+			st, ok := states[id]
+			if !ok {
+				continue
+			}
+			e := editor.Entity{EntityID: id, Name: st.FriendlyName, Domain: st.Domain, Icon: st.Icon, Kind: "other", PlaceID: id}
+			switch {
+			case st.Domain == "light":
+				e.Kind, e.IconSVG = "light", render.LightIcon(st.Icon)
+			case st.Domain == "sensor" && st.DeviceClass == "temperature":
+				e.Kind = "temperature"
+			case st.Domain == "binary_sensor" && containsStr(a.cfg.Sensors.ContactDeviceClasses, st.DeviceClass):
+				e.Kind, e.IconSVG, e.PlaceID = "contact", render.ContactIcon(), st.FriendlyName
+			case st.Domain == "binary_sensor" && containsStr(a.cfg.Sensors.MotionDeviceClasses, st.DeviceClass):
+				e.Kind = "motion"
+			case containsStr(a.cfg.Devices.Domains, st.Domain) && !containsStr(a.cfg.Devices.Exclude, id):
+				e.Kind, e.IconSVG = "device", render.DeviceIcon(st.Domain, st.Icon)
+			}
+			area.Entities = append(area.Entities, e)
+		}
+		sort.SliceStable(area.Entities, func(i, j int) bool { return kindRank(area.Entities[i].Kind) < kindRank(area.Entities[j].Kind) })
+		out = append(out, area)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func kindRank(k string) int {
+	switch k {
+	case "light":
+		return 0
+	case "device":
+		return 1
+	case "contact":
+		return 2
+	case "motion":
+		return 3
+	case "temperature":
+		return 4
+	}
+	return 5
+}
+
+func containsStr(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func liveURL(publicURL string) string {
@@ -284,12 +455,22 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Widget-Title", a.cfg.Title)
 	w.Header().Set("Widget-Content-Type", "html")
 
-	cards, err := a.buildModel(ctx)
+	html, err := a.widgetHTML(ctx, a.currentFloorplan(), editURL(a.cfg.PublicURL))
 	if err != nil {
 		log.Printf("home assistant unavailable: %v", err)
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, render.RenderUnavailable())
-		return
+		html = render.RenderUnavailable()
+	}
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, html)
+}
+
+// widgetHTML renders the widget for a given floorplan (nil = cards
+// layout / config default). The editor's preview calls it with an
+// unsaved layout.
+func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref string) (string, error) {
+	cards, err := a.buildModel(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	pollInterval, _ := time.ParseDuration(a.cfg.Live.PollInterval)
@@ -456,7 +637,8 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 
 	widgetData := render.WidgetData{
 		Layout:          a.cfg.Layout,
-		Floorplan:       a.cfg.Floorplan.Parsed,
+		Floorplan:       fp,
+		EditURL:         editHref,
 		Rooms:           views,
 		CardMinHeight:   a.cfg.Temperature.ChartHeight,
 		LiveURL:         liveURL(a.cfg.PublicURL),
@@ -464,8 +646,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 		PauseWhenHidden: a.cfg.Live.PauseWhenHidden != nil && *a.cfg.Live.PauseWhenHidden,
 	}
 
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, render.RenderWidget(widgetData))
+	return render.RenderWidget(widgetData), nil
 }
 
 func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
@@ -504,6 +685,8 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	})
 	mux.HandleFunc("/widget", a.widgetHandler)
 	mux.HandleFunc("/live.json", a.liveHandler)
+	ed := &editor.Handler{Store: a, Source: a}
+	ed.Register(mux, "")
 
 	// A reverse proxy in front of this service (see README's "Expose this
 	// service to your browser" step) may forward a Custom Location's full
@@ -518,6 +701,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	// only applies when public_url is itself a path.
 	if prefix := strings.TrimRight(cfg.PublicURL, "/"); strings.HasPrefix(prefix, "/") {
 		mux.HandleFunc(prefix+"/live.json", a.liveHandler)
+		ed.Register(mux, prefix)
 	}
 	return mux
 }
@@ -533,6 +717,9 @@ func main() {
 	}
 
 	a := newApp(cfg)
+	if err := a.loadSavedLayout(); err != nil {
+		log.Fatalf("load layout: %v", err)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {

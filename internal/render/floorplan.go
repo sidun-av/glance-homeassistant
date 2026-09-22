@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"html"
+	"math"
 	"sort"
 	"strings"
 )
@@ -23,7 +24,32 @@ type Floorplan struct {
 	// MaxWidth caps the map's width in px (0 = fill the widget). With
 	// aspect-ratio in play this is effectively the map's overall size.
 	MaxWidth int
-	cells    [][]string
+	// Placement, when present for a key, is the editor's per-room layout:
+	// an inner grid and explicit cells for entities. Rooms without one
+	// use the automatic wall slots.
+	Placement map[string]RoomPlacement
+	cells     [][]string
+}
+
+// RoomPlacement is one room's editor-defined interior.
+type RoomPlacement struct {
+	Rows, Columns int
+	Cells         map[string][2]int // entity_id → [row, col] in the inner grid
+	Hidden        map[string]bool   // entity_ids not drawn at all
+	Name          string            // display name override ("" = Area name)
+}
+
+// CellsByKey returns every map cell ([row, col]) each key covers.
+func (fp *Floorplan) CellsByKey() map[string][][2]int {
+	out := map[string][][2]int{}
+	for r, row := range fp.cells {
+		for c, key := range row {
+			if key != "." {
+				out[key] = append(out[key], [2]int{r, c})
+			}
+		}
+	}
+	return out
 }
 
 // ParseFloorplan validates grid+rooms from config. Errors name the
@@ -146,6 +172,12 @@ const floorplanCSS = `
 	.ha-fp-icons>[data-slot="br"]{grid-area:3/3;place-self:end end;--dir:135deg;--len:70cqmin}
 	.ha-fp-icons>[data-slot="c"]{grid-area:2/2;place-self:center}
 	.ha-fp-icons>[data-slot="c"]::before,.ha-fp-icons>[data-slot="c"]::after{display:none}
+	.ha-fp-placed{grid-template-columns:none;grid-template-rows:none}
+	.ha-fp-edit{position:absolute;top:0;right:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+	  color:var(--color-text-subdue);text-decoration:none;opacity:0;transition:opacity .2s;font-size:15px;line-height:1}
+	.ha-widget{position:relative}
+	.ha-widget:hover .ha-fp-edit{opacity:.8}
+	.ha-fp-edit:hover{opacity:1;color:var(--color-text-highlight)}
 	/* The flow: a cone whose apex is the tile's centre, drawn pointing
 	   "down" in its own frame and rotated by --dir toward the room centre.
 	   ::before is the soft body, ::after the moving wave stripes (air only). */
@@ -198,7 +230,11 @@ func renderFloorplan(data WidgetData) string {
 		area := fp.Areas[key]
 		r, _ := byRoom[area] // a mapped room with no HA data is still drawn, empty
 		r.Room = area
-		b.WriteString(renderFloorplanRoom(key, r))
+		if p, ok := fp.Placement[key]; ok {
+			b.WriteString(renderPlacedRoom(key, r, p))
+		} else {
+			b.WriteString(renderFloorplanRoom(key, r))
+		}
 	}
 	b.WriteString(`</div>`)
 	return b.String()
@@ -277,4 +313,128 @@ func beamReach(r RoomCardView) float64 {
 		return 0.7
 	}
 	return 0.55
+}
+
+// renderPlacedRoom draws a room whose interior the editor defined: an
+// R×C inner grid, each placed tile at its cell (hugging the wall when the
+// cell is on the grid's edge), its beam rotated to point at the grid's
+// centre and long enough to almost reach it. Unplaced tiles get the
+// automatic wall slots the un-edited layout uses; hidden ones are skipped.
+func renderPlacedRoom(key string, r RoomCardView, p RoomPlacement) string {
+	name := r.Room
+	if p.Name != "" {
+		name = p.Name
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<div class="ha-room ha-fp-room" data-room="%s" data-lit="%t" data-occupied="%t" style="grid-area:%s">`,
+		html.EscapeString(r.Room), r.Lit, r.Occupied, html.EscapeString(key))
+	fmt.Fprintf(&b, `<span class="ha-fp-name">%s</span>`, html.EscapeString(name))
+	if r.CurrentTemp != "" {
+		b.WriteString(`<span class="ha-fp-temp">` + html.EscapeString(r.CurrentTemp))
+		switch {
+		case r.TempTrend > 0:
+			b.WriteString(`<span class="ha-fp-trend" data-trend="up">↑</span>`)
+		case r.TempTrend < 0:
+			b.WriteString(`<span class="ha-fp-trend" data-trend="down">↓</span>`)
+		}
+		b.WriteString(`</span>`)
+	}
+	r = withoutHidden(r, p.Hidden)
+	tiles, ids := roomTilesWithIDs(r)
+	if len(tiles) == 0 {
+		b.WriteString(`</div>`)
+		return b.String()
+	}
+	rows, cols := max(p.Rows, 1), max(p.Columns, 1)
+	fmt.Fprintf(&b, `<span class="ha-fp-icons ha-fp-placed" style="--reach:%.2f;grid-template-rows:repeat(%d,1fr);grid-template-columns:repeat(%d,1fr)">`, beamReach(r), rows, cols)
+	slot := 0
+	for i, tile := range tiles {
+		cell, placed := p.Cells[ids[i]]
+		if !placed {
+			b.WriteString(strings.Replace(tile, `<span class="`, fmt.Sprintf(`<span data-slot="%s" class="`, wallSlots[min(slot, len(wallSlots)-1)]), 1))
+			slot++
+			continue
+		}
+		b.WriteString(strings.Replace(tile, `<span class="`, `<span style="`+placedTileStyle(cell, rows, cols)+`" class="`, 1))
+	}
+	b.WriteString(`</span></div>`)
+	return b.String()
+}
+
+// placedTileStyle positions a tile at cell [row,col] of a rows×cols inner
+// grid and aims its beam at the grid centre. --dir: the beam is drawn
+// pointing "down", so rotate by atan2(-dx, dy) where (dx,dy) is the vector
+// to the centre in cell units. --len: distance to the centre in container
+// units, approximated without sqrt (max + 0.41·min) — CSS calc has no
+// hypot. A tile in the exact centre casts nothing (--len:0).
+func placedTileStyle(cell [2]int, rows, cols int) string {
+	dy := (float64(rows)-1)/2 - float64(cell[0])
+	dx := (float64(cols)-1)/2 - float64(cell[1])
+	just := "center"
+	switch {
+	case cell[1] == 0 && cols > 1:
+		just = "start"
+	case cell[1] == cols-1 && cols > 1:
+		just = "end"
+	}
+	align := "center"
+	switch {
+	case cell[0] == 0 && rows > 1:
+		align = "start"
+	case cell[0] == rows-1 && rows > 1:
+		align = "end"
+	}
+	dir := math.Round(math.Atan2(-dx, dy) * 180 / math.Pi)
+	if dir == -180 || dir == 0 { // normalise -0 / -180 for a stable attribute
+		dir = math.Abs(dir)
+	}
+	ax := math.Abs(dx) * 100 / float64(cols)
+	ay := math.Abs(dy) * 100 / float64(rows)
+	lenExpr := "0px"
+	if ax > 0 || ay > 0 {
+		lenExpr = fmt.Sprintf("calc(max(%.2fcqw,%.2fcqh) + 0.41 * min(%.2fcqw,%.2fcqh))", ax, ay, ax, ay)
+	}
+	return fmt.Sprintf("grid-area:%d/%d;place-self:%s %s;--dir:%.0fdeg;--len:%s", cell[0]+1, cell[1]+1, align, just, dir, lenExpr)
+}
+
+func withoutHidden(r RoomCardView, hidden map[string]bool) RoomCardView {
+	if len(hidden) == 0 {
+		return r
+	}
+	var lights []LightView
+	for _, l := range r.Lights {
+		if !hidden[l.EntityID] {
+			lights = append(lights, l)
+		}
+	}
+	var devices []DeviceView
+	for _, d := range r.Devices {
+		if !hidden[d.EntityID] {
+			devices = append(devices, d)
+		}
+	}
+	var contacts []SensorBadgeView
+	for _, c := range r.Contacts {
+		if !hidden[c.Name] {
+			contacts = append(contacts, c)
+		}
+	}
+	r.Lights, r.Devices, r.Contacts = lights, devices, contacts
+	return r
+}
+
+// roomTilesWithIDs is roomTiles plus the id the editor places each tile
+// by: entity_id for lights/devices, the sensor name for contacts.
+func roomTilesWithIDs(r RoomCardView) (tiles []string, ids []string) {
+	tiles = roomTiles(r)
+	for _, l := range r.Lights {
+		ids = append(ids, l.EntityID)
+	}
+	for _, d := range r.Devices {
+		ids = append(ids, d.EntityID)
+	}
+	for _, c := range r.Contacts {
+		ids = append(ids, c.Name)
+	}
+	return tiles, ids
 }

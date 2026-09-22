@@ -21,6 +21,7 @@ type Config struct {
 	Sensors       SensorsConfig       `yaml:"sensors"`
 	Devices       DevicesConfig       `yaml:"devices"`
 	Layout        string              `yaml:"layout"`
+	LayoutFile    string              `yaml:"layout_file"` // env: LAYOUT_FILE — where the editor saves; default /data/floorplan.json
 	Floorplan     FloorplanConfig     `yaml:"floorplan"`
 }
 
@@ -139,6 +140,9 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Layout == "" {
 		cfg.Layout = "cards"
 	}
+	if cfg.LayoutFile == "" {
+		cfg.LayoutFile = "/data/floorplan.json"
+	}
 	if cfg.Layout != "cards" && cfg.Layout != "floorplan" {
 		return nil, fmt.Errorf("layout must be \"cards\" or \"floorplan\", got %q", cfg.Layout)
 	}
@@ -251,6 +255,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("DEVICES_EXCLUDE"); ok {
 		cfg.Devices.Exclude = splitEnvList(v)
+	}
+	if v, ok := lookupNonEmptyEnv("LAYOUT_FILE"); ok {
+		cfg.LayoutFile = v
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT"); ok {
 		cfg.Layout = v

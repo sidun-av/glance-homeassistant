@@ -23,5 +23,9 @@ services:
     # Optional: mount a hand-edited config.yml instead of (or alongside) the
     # environment variables above — see config.example.yml. Not needed for a
     # GUI/env-var-only setup; env vars always take priority over this file.
-    # volumes:
+    volumes:
+      - glance_ha_data:/data   # the browser editor saves the floorplan here
     #   - ./glance-homeassistant/config.yml:/config.yml:ro
+
+volumes:
+  glance_ha_data:

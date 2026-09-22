@@ -59,7 +59,32 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
 - A running figure per motion/occupancy sensor (accent-coloured while motion is detected, faint
   otherwise), and a door icon per contact sensor. An occupied room also gets a thin accent outline.
 
-`max_width` caps the map's size so it does not swallow a wide column. No temperature chart. Colours all come
+`max_width` caps the map's size so it does not swallow a wide column.
+
+### Editing the map in the browser
+
+Hover the widget and click the gear in its top-right corner (or open `<public_url>/edit`, e.g.
+`https://your-glance/ha-widget/edit`). The editor lets you:
+
+- set the map's size in cells, its aspect ratio and max width;
+- add, rename and delete rooms, assign each to a Home Assistant Area, and paint its cells on the
+  map (click/drag; Alt-click removes a cell; rooms stay solid rectangles);
+- set each room's inner grid and drag the room's entities onto cells — an edge cell hugs that wall
+  and beams toward the centre, the centre cell casts no beam; drag back to the list to unplace,
+  ⊘ to hide an entity from the map; "show all" lists the Area's other entities too;
+- Preview without saving, Save, or Reset to the config-defined layout.
+
+Saved layouts live in `LAYOUT_FILE` (default `/data/floorplan.json`) and take precedence over the
+`floorplan:` config, which remains the seed. Mount a volume at `/data` to keep them across
+container recreations:
+
+```yaml
+    volumes:
+      - glance_ha_data:/data
+```
+
+The editor has no login of its own — it is exactly as exposed as the widget's `public_url`. If that
+is reachable from the internet, put it behind your reverse proxy's auth (forward-auth, access list). No temperature chart. Colours all come
 from Glance's theme variables, so it follows whatever theme the dashboard runs. The map's height
 follows its width via `aspect_ratio` (default: square cells, i.e. `columns/rows`). Live updates
 work exactly as in the cards layout.
@@ -171,6 +196,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `DEVICES_DOMAINS` | `devices.domains` | `fan,climate,humidifier,water_heater,media_player,vacuum,cover,lock` | HA domains that get a device tile (floorplan). Add `switch` to opt in. |
 | `DEVICES_EXCLUDE` | `devices.exclude` | — | entity_ids to skip even if their domain is listed |
 | `LAYOUT` | `layout` | `cards` | `cards` or `floorplan` (see "Floorplan layout") |
+| `LAYOUT_FILE` | `layout_file` | `/data/floorplan.json` | where the browser editor saves the floorplan |
 | `FLOORPLAN_GRID` | `floorplan.grid` | — | rows joined with `;`, e.g. `bedroom bedroom kitchen;bath hall kitchen` |
 | `FLOORPLAN_ROOMS` | `floorplan.rooms` | — | `key=Area Name,key2=Area 2` |
 | `FLOORPLAN_ASPECT_RATIO` | `floorplan.aspect_ratio` | columns/rows | CSS aspect-ratio of the whole map, e.g. `4/3` or `1.15` |
