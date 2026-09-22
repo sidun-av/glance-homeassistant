@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/sidun-av/glance-homeassistant/internal/render"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,6 +19,15 @@ type Config struct {
 	Temperature   TemperatureConfig   `yaml:"temperature"`
 	Live          LiveConfig          `yaml:"live"`
 	Sensors       SensorsConfig       `yaml:"sensors"`
+	Layout        string              `yaml:"layout"`
+	Floorplan     FloorplanConfig     `yaml:"floorplan"`
+}
+
+type FloorplanConfig struct {
+	Grid        []string          `yaml:"grid"`
+	Rooms       map[string]string `yaml:"rooms"`
+	AspectRatio string            `yaml:"aspect_ratio"` // optional CSS aspect-ratio for the whole map, e.g. "4/3" or "1.15"
+	Parsed      *render.Floorplan `yaml:"-"`            // validated at load time when layout == "floorplan"
 }
 
 type HomeAssistantConfig struct {
@@ -40,6 +51,8 @@ type SensorsConfig struct {
 	ContactDeviceClasses []string `yaml:"contact_device_classes"`
 	MotionDeviceClasses  []string `yaml:"motion_device_classes"`
 }
+
+var aspectRatioRe = regexp.MustCompile(`^\d+(\.\d+)?(\s*/\s*\d+(\.\d+)?)?$`)
 
 func LoadConfig(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
@@ -109,6 +122,25 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Temperature.ChartHeight < 0 {
 		return nil, fmt.Errorf("temperature.chart_height must not be negative, got %d", cfg.Temperature.ChartHeight)
+	}
+	if cfg.Layout == "" {
+		cfg.Layout = "cards"
+	}
+	if cfg.Layout != "cards" && cfg.Layout != "floorplan" {
+		return nil, fmt.Errorf("layout must be \"cards\" or \"floorplan\", got %q", cfg.Layout)
+	}
+	if cfg.Layout == "floorplan" {
+		fp, err := render.ParseFloorplan(cfg.Floorplan.Grid, cfg.Floorplan.Rooms)
+		if err != nil {
+			return nil, err
+		}
+		if ar := strings.TrimSpace(cfg.Floorplan.AspectRatio); ar != "" {
+			if !aspectRatioRe.MatchString(ar) {
+				return nil, fmt.Errorf("floorplan.aspect_ratio %q must look like \"4/3\" or \"1.15\"", ar)
+			}
+			fp.AspectRatio = ar
+		}
+		cfg.Floorplan.Parsed = fp
 	}
 
 	return &cfg, nil
@@ -196,6 +228,33 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("SENSORS_MOTION_DEVICE_CLASSES"); ok {
 		cfg.Sensors.MotionDeviceClasses = splitEnvList(v)
+	}
+	if v, ok := lookupNonEmptyEnv("LAYOUT"); ok {
+		cfg.Layout = v
+	}
+	if v, ok := lookupNonEmptyEnv("FLOORPLAN_GRID"); ok {
+		// Rows separated by ";" — the only separator that survives a
+		// single-line env var in a GUI stack manager.
+		cfg.Floorplan.Grid = nil
+		for _, row := range strings.Split(v, ";") {
+			if row = strings.TrimSpace(row); row != "" {
+				cfg.Floorplan.Grid = append(cfg.Floorplan.Grid, row)
+			}
+		}
+	}
+	if v, ok := lookupNonEmptyEnv("FLOORPLAN_ASPECT_RATIO"); ok {
+		cfg.Floorplan.AspectRatio = v
+	}
+	if v, ok := lookupNonEmptyEnv("FLOORPLAN_ROOMS"); ok {
+		rooms := map[string]string{}
+		for _, pair := range splitEnvList(v) {
+			key, area, found := strings.Cut(pair, "=")
+			if !found {
+				return fmt.Errorf("env FLOORPLAN_ROOMS entry %q must be key=Area Name", pair)
+			}
+			rooms[strings.TrimSpace(key)] = strings.TrimSpace(area)
+		}
+		cfg.Floorplan.Rooms = rooms
 	}
 	return nil
 }

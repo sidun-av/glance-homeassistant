@@ -19,6 +19,41 @@ lightweight `/live.json` endpoint on this same service every ~10 seconds while t
 visible, patching just the lights/sensors DOM in place. Close the tab and the polling stops on its
 own — nothing to configure.
 
+## Floorplan layout
+
+`layout: floorplan` swaps the room cards for a schematic map of the home. Rooms are laid out from
+an ASCII grid in config (it is CSS `grid-template-areas`, verbatim), so reshaping the map is a
+config edit, not a code change:
+
+```yaml
+layout: floorplan
+floorplan:
+  aspect_ratio: "1.15"                  # optional: width/height of the whole map
+  grid:
+    - "bedroom bedroom kitchen kitchen"
+    - "bedroom bedroom kitchen kitchen"
+    - "bath    hall    kitchen kitchen"
+    - "bath    hall    kitchen kitchen"
+  rooms:                                # grid key → Home Assistant Area name
+    bedroom: Bedroom
+    kitchen: Kitchen
+    bath: Bathroom
+    hall: Hallway
+```
+
+Each room shows its name, and — only where the room has that data — the current temperature
+with a trend arrow (red ↑ rising, blue ↓ falling vs. the previous hour), its lights (lit ones
+glow), and occupancy/contact chips. A room with a light on gets the same warm tint as in the
+cards layout; an occupied room gets a thin accent outline. No temperature chart. Colours all come
+from Glance's theme variables, so it follows whatever theme the dashboard runs. The map's height
+follows its width via `aspect_ratio` (default: square cells, i.e. `columns/rows`). Live updates
+work exactly as in the cards layout.
+
+Rules: every key in `grid` must be in `rooms` and vice versa, rows must have the same number of
+cells (pad with `.` for empty space), and each key must cover one rectangle — L-shapes are not
+possible with CSS grid areas; split such a room into two keys mapped to the same Area if you need
+it. Violations are reported at startup naming the key.
+
 ## Setup
 
 ### 1. Create a Home Assistant long-lived access token
@@ -118,6 +153,10 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `TEMPERATURE_MAX_POINTS` | `temperature.max_points` | `60` | Points per room's temperature series (resolution) |
 | `TEMPERATURE_CHART_HEIGHT` | `temperature.chart_height` | `130` | Base minimum room-card height in px — cards with more to show (lights, occupancy, contact) grow taller automatically |
 | `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `bars` | `bars` (WEATHER-widget bar chart) or `sparkline` |
+| `LAYOUT` | `layout` | `cards` | `cards` or `floorplan` (see "Floorplan layout") |
+| `FLOORPLAN_GRID` | `floorplan.grid` | — | rows joined with `;`, e.g. `bedroom bedroom kitchen;bath hall kitchen` |
+| `FLOORPLAN_ROOMS` | `floorplan.rooms` | — | `key=Area Name,key2=Area 2` |
+| `FLOORPLAN_ASPECT_RATIO` | `floorplan.aspect_ratio` | columns/rows | CSS aspect-ratio of the whole map, e.g. `4/3` or `1.15` |
 | `LIVE_POLL_INTERVAL` | `live.poll_interval` | `10s` | How often the browser polls `/live.json` while the tab is open |
 | `LIVE_PAUSE_WHEN_HIDDEN` | `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
 | `SENSORS_CONTACT_DEVICE_CLASSES` | `sensors.contact_device_classes` | `door,window,garage_door,opening` | Comma-separated `binary_sensor` device classes shown as Open/Closed |

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -415,5 +416,70 @@ func TestLoadConfig_DockerDefaultFileWithEnvOverrides(t *testing.T) {
 	}
 	if cfg.Title != "Home" {
 		t.Errorf("Title = %q, want the built-in default", cfg.Title)
+	}
+}
+
+func TestLoadConfig_FloorplanFromYAML(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+layout: floorplan
+floorplan:
+  grid:
+    - "bedroom bedroom kitchen"
+    - "bath    hall    kitchen"
+  rooms:
+    bedroom: Bedroom
+    kitchen: Kitchen
+    bath: Bathroom
+    hall: Hallway
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Layout != "floorplan" || cfg.Floorplan.Parsed == nil {
+		t.Fatalf("floorplan not parsed: layout=%q parsed=%v", cfg.Layout, cfg.Floorplan.Parsed)
+	}
+	if cfg.Floorplan.Parsed.Columns != 3 || cfg.Floorplan.Parsed.Rows != 2 {
+		t.Errorf("grid = %dx%d, want 3x2", cfg.Floorplan.Parsed.Columns, cfg.Floorplan.Parsed.Rows)
+	}
+}
+
+func TestLoadConfig_FloorplanFromEnv(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+`)
+	t.Setenv("LAYOUT", "floorplan")
+	t.Setenv("FLOORPLAN_GRID", "bedroom bedroom kitchen; bath hall kitchen")
+	t.Setenv("FLOORPLAN_ROOMS", "bedroom=Bedroom, kitchen=Kitchen,bath=Bathroom,hall=Hallway")
+	t.Setenv("FLOORPLAN_ASPECT_RATIO", "4/3")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Floorplan.Parsed == nil || cfg.Floorplan.Parsed.Rows != 2 || cfg.Floorplan.Parsed.Areas["hall"] != "Hallway" || cfg.Floorplan.Parsed.AspectRatio != "4/3" {
+		t.Fatalf("env floorplan not applied: %+v", cfg.Floorplan)
+	}
+}
+
+func TestLoadConfig_FloorplanErrors(t *testing.T) {
+	cases := []struct{ name, yaml, want string }{
+		{"bad layout", "layout: map\n", `layout must be "cards" or "floorplan"`},
+		{"floorplan without grid", "layout: floorplan\n", "floorplan.grid is empty"},
+		{"unknown key", "layout: floorplan\nfloorplan:\n  grid: [\"a b\"]\n  rooms: {a: A}\n", `"b" is used in floorplan.grid`},
+		{"bad aspect", "layout: floorplan\nfloorplan:\n  grid: [\"a\"]\n  rooms: {a: A}\n  aspect_ratio: wide\n", `floorplan.aspect_ratio "wide"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := writeTempConfig(t, "home_assistant:\n  url: http://x\n  token: t\n"+c.yaml)
+			_, err := LoadConfig(path)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want error containing %q, got %v", c.want, err)
+			}
+		})
 	}
 }

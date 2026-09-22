@@ -540,3 +540,25 @@ func TestProjectYesterday_ToleratesShorterProjectionSlice(t *testing.T) {
 		t.Errorf("values[2] = %v, want it left as NaN", values[2])
 	}
 }
+
+func TestTemperatureTrend(t *testing.T) {
+	nan := math.NaN()
+	cases := []struct {
+		name   string
+		values []float64
+		idx    int
+		want   int
+	}{
+		{"rising", []float64{20, 21.5}, 1, 1},
+		{"falling", []float64{22, 21}, 1, -1},
+		{"flat within threshold", []float64{21.0, 21.2}, 1, 0},
+		{"skips NaN gap to previous reading", []float64{20, nan, nan, 22}, 3, 1},
+		{"first bucket has no previous", []float64{20, 21}, 0, 0},
+		{"all previous NaN", []float64{nan, 21}, 1, 0},
+	}
+	for _, c := range cases {
+		if got := temperatureTrend(c.values, c.idx); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+}

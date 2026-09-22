@@ -230,6 +230,32 @@ func projectYesterday(values, dayEarlier []float64, currentIdx int) {
 	}
 }
 
+// temperatureTrend compares the current bucket with the most recent earlier
+// bucket that has a reading (history can have gaps) and reports +1/-1 when
+// the move exceeds trendThreshold — small sensor jitter should not flip the
+// arrow every refresh. 0 means flat or not enough data.
+const trendThreshold = 0.3
+
+func temperatureTrend(values []float64, currentIdx int) int {
+	if currentIdx <= 0 || currentIdx >= len(values) || math.IsNaN(values[currentIdx]) {
+		return 0
+	}
+	for i := currentIdx - 1; i >= 0; i-- {
+		if math.IsNaN(values[i]) {
+			continue
+		}
+		d := values[currentIdx] - values[i]
+		switch {
+		case d >= trendThreshold:
+			return 1
+		case d <= -trendThreshold:
+			return -1
+		}
+		return 0
+	}
+	return 0
+}
+
 func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -384,6 +410,8 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 			if len(avg) == 0 || currentIdx >= len(avg) || math.IsNaN(avg[currentIdx]) {
 				view.TempNoData = true
 			} else {
+				view.CurrentTemp = fmt.Sprintf("%.0f°", avg[currentIdx])
+				view.TempTrend = temperatureTrend(avg, currentIdx)
 				if a.cfg.Temperature.ChartStyle == "bars" {
 					projectYesterday(avg, hass.AverageSeries(yesterday), currentIdx)
 					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentIndex: currentIdx, TimeLabels: barColumnTimeLabels(timestamps)}
@@ -406,6 +434,8 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	widgetData := render.WidgetData{
+		Layout:          a.cfg.Layout,
+		Floorplan:       a.cfg.Floorplan.Parsed,
 		Rooms:           views,
 		CardMinHeight:   a.cfg.Temperature.ChartHeight,
 		LiveURL:         liveURL(a.cfg.PublicURL),

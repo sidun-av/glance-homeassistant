@@ -25,6 +25,8 @@ type RoomCardView struct {
 	Occupied       bool
 	HasTemperature bool
 	TempNoData     bool
+	CurrentTemp    string // e.g. "22°"; only the floorplan layout shows it, cards leave it to the chart
+	TempTrend      int    // -1 falling, 0 flat/unknown, +1 rising — vs the previous bucket; floorplan only
 	ChartHTML      string
 	AxisRowHTML    string // "" for the "bars" chart style, which renders its own per-column time labels (see AxisLabelsRow)
 	Lights         []LightView
@@ -33,6 +35,8 @@ type RoomCardView struct {
 }
 
 type WidgetData struct {
+	Layout          string     // "" or "cards" → room cards; "floorplan" → schematic map
+	Floorplan       *Floorplan // required when Layout == "floorplan"
 	Rooms           []RoomCardView
 	CardMinHeight   int
 	LiveURL         string
@@ -239,7 +243,7 @@ const roomSizeCSS = `
 func styleBlock(cardMinHeight int) string {
 	return "<style>" +
 		fmt.Sprintf(roomSizeCSS, cardMinHeight, cardMinHeight+20, cardMinHeight+130) +
-		widgetCSS + chartCSS +
+		widgetCSS + chartCSS + floorplanCSS +
 		"</style>"
 }
 
@@ -266,7 +270,9 @@ func RenderWidget(data WidgetData) string {
 
 	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span><span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
 
-	if len(data.Rooms) == 0 {
+	if data.Layout == "floorplan" && data.Floorplan != nil {
+		b.WriteString(renderFloorplan(data))
+	} else if len(data.Rooms) == 0 {
 		b.WriteString(`<div class="ha-empty">no rooms with a temperature sensor, light, or sensor found</div>`)
 	} else {
 		b.WriteString(`<div class="ha-rooms">`)

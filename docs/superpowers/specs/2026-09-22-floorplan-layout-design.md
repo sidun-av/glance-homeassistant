@@ -39,6 +39,15 @@ floorplan:
 - Rows may have different lengths only if padded with `.`; ragged rows are an
   error.
 
+Added during implementation: `floorplan.aspect_ratio` (env
+`FLOORPLAN_ASPECT_RATIO`), optional, overrides the container's
+`aspect-ratio` (default `columns/rows`) because a grid that matches the
+room *arrangement* rarely matches the flat's real proportions. And a
+trend arrow next to the temperature: `RoomCardView.TempTrend` (+1/0/-1),
+computed in `main.go` as current bucket vs the most recent earlier bucket
+with a reading, threshold 0.3°; rendered red `↑` (`--color-negative`) or
+blue `↓`.
+
 ## Rendering
 
 `RenderWidget` gains a branch on `WidgetData.Layout`:
