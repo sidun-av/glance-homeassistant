@@ -211,7 +211,7 @@ func TestRenderFloorplanRoom_DevicesAndSlotOverflow(t *testing.T) {
 	}
 	html := renderFloorplanRoom("k", r)
 	for _, want := range []string{
-		`data-slot="t" class="ha-device" data-entity-id="fan.0" data-on="true" data-effect="fan" title="Fan"`,
+		`data-slot="t" class="ha-device" data-entity-id="fan.0" data-on="true" data-effect="fan" data-domain="" title="Fan"`,
 		`data-slot="br" class="ha-device" data-entity-id="fan.7"`,
 		`data-slot="c" data-center="true" class="ha-device" data-entity-id="fan.8"`,
 	} {

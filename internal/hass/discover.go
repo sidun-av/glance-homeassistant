@@ -1,6 +1,9 @@
 package hass
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 type TemperatureRoom struct {
 	Room      string
@@ -12,6 +15,21 @@ type Light struct {
 	Name     string
 	On       bool
 	Icon     string
+
+	// Has* come from supported_color_modes, which is a capability list
+	// present even while the light is off — that's what the popover uses to
+	// decide which controls to offer. The value fields are best-effort:
+	// some integrations null out brightness/color while off.
+	HasBrightness bool
+	Brightness    int // 0..100 percent
+
+	HasColorTemp    bool
+	ColorTempKelvin int
+	MinColorTempK   int // 0 = caller should fall back to a sane default range
+	MaxColorTempK   int
+
+	HasColor bool
+	RGB      [3]int
 }
 
 type SensorEntity struct {
@@ -33,6 +51,14 @@ type Device struct {
 	Icon     string
 	On       bool
 	Effect   string
+
+	// climate only
+	HasTargetTemp bool
+	CurrentTemp   float64
+	TargetTemp    float64
+	MinTemp       float64
+	MaxTemp       float64
+	TempStep      float64
 }
 
 type RoomCard struct {
@@ -93,6 +119,26 @@ func DeviceEffect(state EntityState) (on bool, effect string) {
 	return state.State == "on", ""
 }
 
+// colorModeCapabilities reads a light's supported_color_modes (present even
+// while the light is off) and decides which popover controls apply. Any
+// mode past plain on/off implies brightness; a color mode (hs/rgb/rgbw/
+// rgbww/xy) implies both brightness and the swatch palette, since HA's
+// light.turn_on always accepts rgb_color regardless of which of those the
+// light natively uses internally.
+func colorModeCapabilities(modes []string) (hasBrightness, hasColorTemp, hasColor bool) {
+	for _, m := range modes {
+		switch m {
+		case "brightness":
+			hasBrightness = true
+		case "color_temp":
+			hasBrightness, hasColorTemp = true, true
+		case "hs", "rgb", "rgbw", "rgbww", "xy":
+			hasBrightness, hasColor = true, true
+		}
+	}
+	return
+}
+
 func contains(list []string, v string) bool {
 	for _, item := range list {
 		if item == v {
@@ -139,12 +185,32 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 				b.temp.EntityIDs = append(b.temp.EntityIDs, entityID)
 
 			case state.Domain == "light":
-				b.lights = append(b.lights, Light{
-					EntityID: entityID,
-					Name:     state.FriendlyName,
-					On:       state.State == "on",
-					Icon:     state.Icon,
-				})
+				hasBrightness, hasColorTemp, hasColor := colorModeCapabilities(state.SupportedColorModes)
+				l := Light{
+					EntityID:      entityID,
+					Name:          state.FriendlyName,
+					On:            state.State == "on",
+					Icon:          state.Icon,
+					HasBrightness: hasBrightness,
+					HasColorTemp:  hasColorTemp,
+					HasColor:      hasColor,
+				}
+				if state.Brightness != nil {
+					l.Brightness = int(math.Round(float64(*state.Brightness) * 100 / 255))
+				}
+				if state.ColorTempKelvin != nil {
+					l.ColorTempKelvin = *state.ColorTempKelvin
+				}
+				if state.MinColorTempKelvin != nil {
+					l.MinColorTempK = *state.MinColorTempKelvin
+				}
+				if state.MaxColorTempKelvin != nil {
+					l.MaxColorTempK = *state.MaxColorTempKelvin
+				}
+				if len(state.RGBColor) == 3 {
+					l.RGB = [3]int{state.RGBColor[0], state.RGBColor[1], state.RGBColor[2]}
+				}
+				b.lights = append(b.lights, l)
 
 			case state.Domain == "binary_sensor" && contains(cfg.ContactDeviceClasses, state.DeviceClass):
 				if state.State != "on" && state.State != "off" {
@@ -173,14 +239,32 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					continue
 				}
 				on, effect := DeviceEffect(state)
-				b.devices = append(b.devices, Device{
+				d := Device{
 					EntityID: entityID,
 					Name:     state.FriendlyName,
 					Domain:   state.Domain,
 					Icon:     state.Icon,
 					On:       on,
 					Effect:   effect,
-				})
+				}
+				if state.Domain == "climate" && state.TargetTemperature != nil {
+					d.HasTargetTemp = true
+					d.TargetTemp = *state.TargetTemperature
+					if state.CurrentTemperature != nil {
+						d.CurrentTemp = *state.CurrentTemperature
+					}
+					d.MinTemp, d.MaxTemp, d.TempStep = 16, 30, 0.5
+					if state.MinTemp != nil {
+						d.MinTemp = *state.MinTemp
+					}
+					if state.MaxTemp != nil {
+						d.MaxTemp = *state.MaxTemp
+					}
+					if state.TempStep != nil {
+						d.TempStep = *state.TempStep
+					}
+				}
+				b.devices = append(b.devices, d)
 			}
 		}
 	}

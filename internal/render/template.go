@@ -10,15 +10,72 @@ type LightView struct {
 	EntityID string
 	IconSVG  string
 	On       bool
+
+	HasBrightness bool
+	Brightness    int // 0..100 percent
+
+	HasColorTemp    bool
+	ColorTempKelvin int
+	MinColorTempK   int
+	MaxColorTempK   int
+
+	HasColor bool
+	RGB      [3]int
 }
 
 type DeviceView struct {
 	EntityID string
 	Name     string
+	Domain   string
 	IconSVG  string
 	On       bool
 	Effect   string // "fan", "heat", "music" or ""
 	Accent   string // media players: the Now-playing card's colour, so the notes match
+
+	// climate only: drives the temperature popover
+	HasTargetTemp bool
+	CurrentTemp   float64
+	TargetTemp    float64
+	MinTemp       float64
+	MaxTemp       float64
+	TempStep      float64
+}
+
+// lightTileAttrs renders a light tile's popover data-* attributes: which
+// controls apply (Has*, from supported_color_modes) plus their current/range
+// values. Shared by the cards and floorplan layouts so both stay in sync.
+func lightTileAttrs(l LightView) string {
+	var b strings.Builder
+	if l.HasBrightness {
+		fmt.Fprintf(&b, ` data-has-brightness="true" data-brightness="%d"`, l.Brightness)
+	}
+	if l.HasColorTemp {
+		minK, maxK := l.MinColorTempK, l.MaxColorTempK
+		if minK <= 0 {
+			minK = 2000
+		}
+		if maxK <= 0 {
+			maxK = 6500
+		}
+		fmt.Fprintf(&b, ` data-has-color-temp="true" data-color-temp="%d" data-color-temp-min="%d" data-color-temp-max="%d"`, l.ColorTempKelvin, minK, maxK)
+	}
+	if l.HasColor {
+		fmt.Fprintf(&b, ` data-has-color="true" data-rgb="%d,%d,%d"`, l.RGB[0], l.RGB[1], l.RGB[2])
+	}
+	return b.String()
+}
+
+// deviceTileAttrs renders a device tile's domain (needed client-side to
+// decide whether a click may toggle it at all) plus, for climate, its
+// temperature popover data.
+func deviceTileAttrs(d DeviceView) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, ` data-domain="%s"`, html.EscapeString(d.Domain))
+	if d.HasTargetTemp {
+		fmt.Fprintf(&b, ` data-has-target-temp="true" data-current-temp="%.1f" data-target-temp="%.1f" data-min-temp="%.1f" data-max-temp="%.1f" data-temp-step="%.2f"`,
+			d.CurrentTemp, d.TargetTemp, d.MinTemp, d.MaxTemp, d.TempStep)
+	}
+	return b.String()
 }
 
 type SensorBadgeView struct {
@@ -49,6 +106,7 @@ type WidgetData struct {
 	EditURL         string // floorplan only: href of the hover gear that opens the editor ("" = no gear)
 	Media           []MediaView
 	MediaURL        string     // endpoint the Now-playing buttons POST to ("" = no controls)
+	EntityURL       string     // endpoint a light/device tile's click or popover POSTs to ("" = no interactivity)
 	Floorplan       *Floorplan // required when Layout == "floorplan"
 	Rooms           []RoomCardView
 	CardMinHeight   int
@@ -256,7 +314,7 @@ const roomSizeCSS = `
 func styleBlock(cardMinHeight int) string {
 	return "<style>" +
 		fmt.Sprintf(roomSizeCSS, cardMinHeight, cardMinHeight+20, cardMinHeight+130) +
-		widgetCSS + chartCSS + floorplanCSS + nowPlayingCSS + accentRulesCSS() +
+		widgetCSS + chartCSS + floorplanCSS + nowPlayingCSS + entityControlCSS + accentRulesCSS() +
 		"</style>"
 }
 
@@ -268,7 +326,7 @@ func styleBlock(cardMinHeight int) string {
 // light's on state, a room's lit/occupied state, a contact's open state)
 // is a data-* attribute, matching the initial render exactly — it never
 // needs to know a light's fixture type or reconstruct any markup.
-const bootstrapScript = `(function(img){var root=img.closest('.ha-widget');if(!root)return;var url=root.dataset.liveUrl;var interval=parseInt(root.dataset.pollMs,10)||10000;var pauseWhenHidden=root.dataset.pauseHidden==='true';var timer=null;function applyState(data){(data.rooms||[]).forEach(function(room){var card=root.querySelector('.ha-room[data-room="'+CSS.escape(room.room)+'"]');if(!card)return;var anyLit=false;(room.lights||[]).forEach(function(l){var el=card.querySelector('.ha-light[data-entity-id="'+CSS.escape(l.entity_id)+'"]');if(!el)return;el.dataset.on=l.on;if(l.on)anyLit=true;});var anyOccupied=false;(room.occupancy||[]).forEach(function(o){if(o.attention)anyOccupied=true;var chip=card.querySelector('.ha-occ-chip[data-sensor-name="'+CSS.escape(o.name)+'"]');if(!chip)return;chip.dataset.occupied=o.attention;var label=chip.querySelector('.ha-occ-label');if(label)label.textContent=o.label;});(room.contacts||[]).forEach(function(c){var badge=card.querySelector('.ha-badge[data-sensor-name="'+CSS.escape(c.name)+'"]');if(!badge)return;badge.dataset.open=c.attention;var label=badge.querySelector('.ha-contact-label');if(label)label.textContent=c.label;});(room.devices||[]).forEach(function(d){var el=card.querySelector('.ha-device[data-entity-id="'+CSS.escape(d.entity_id)+'"]');if(!el)return;el.dataset.on=d.on;el.dataset.effect=d.effect||'';});card.dataset.lit=anyLit;card.dataset.occupied=anyOccupied;});var np=root.querySelector('.ha-np');if(np&&data.media){(data.media||[]).forEach(function(m){var row=np.querySelector('.ha-np-row[data-entity-id="'+CSS.escape(m.entity_id)+'"]');if(!row)return;var holdPos=row.dataset.optimisticUntil&&Date.now()<+row.dataset.optimisticUntil;if(holdPos&&row.dataset.state!==m.state)return;row.dataset.state=m.state;var t=row.querySelector('.ha-np-title');if(t)t.textContent=m.title||m.state_label||'';var a=row.querySelector('.ha-np-artist');if(a)a.textContent=m.artist||'';if(!holdPos){row.dataset.position=m.position||0;row.dataset.positionAt=m.position_at||0;}row.dataset.duration=m.duration||0;var vol=row.querySelector('.ha-np-vol');var vin=vol&&vol.querySelector('input');if(vin){if(m.volume<0){vol.hidden=true;}else{vol.hidden=false;if(!vin.dataset.holding&&!(row.dataset.volUntil&&Date.now()<+row.dataset.volUntil)){var v=Math.round(m.volume*100);vin.value=v;vin.style.setProperty('--pct',v+'%');}}}var art=row.querySelector('.ha-np-art');var img=art&&art.querySelector('img');if(img&&(img.getAttribute('src')||'')!==(m.art_url||'')){img.setAttribute('src',m.art_url||'');art.dataset.hasArt=!!m.art_url;}tick(row);});}}function tick(row){var dur=+row.dataset.duration||0;var prog=row.querySelector('.ha-np-fill');if(!prog)return;if(!dur){prog.style.width='0';return;}var pos=+row.dataset.position||0;if(row.dataset.state==='playing'&&+row.dataset.positionAt>0)pos+=(Date.now()-(+row.dataset.positionAt))/1000;pos=Math.max(0,Math.min(dur,pos));prog.style.width=(100*pos/dur).toFixed(1)+'%';var tm=row.querySelector('.ha-np-time');if(tm)tm.textContent=clock(pos);var tt=row.querySelector('.ha-np-total');if(tt)tt.textContent=clock(dur);}function clock(s){s=Math.round(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0');}var ticker=setInterval(function(){root.querySelectorAll('.ha-np-row[data-state="playing"]').forEach(tick);},1000);function poll(){fetch(url,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(data){if(data)applyState(data);}).catch(function(){});}function stop(){if(timer){clearInterval(timer);timer=null;}}function schedule(){stop();timer=setInterval(poll,interval);}var volTimer={};function sendVolume(row,v){var np=row.closest('.ha-np');if(!np||!np.dataset.mediaUrl)return;row.dataset.volUntil=String(Date.now()+8000);fetch(np.dataset.mediaUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'text/plain'},body:JSON.stringify({entity_id:row.dataset.entityId,action:'volume_set',volume:v/100})}).catch(function(){});}root.addEventListener('input',function(e){var vin=e.target;if(!vin.matches||!vin.matches('.ha-np-vol input'))return;var row=vin.closest('.ha-np-row');if(!row)return;vin.style.setProperty('--pct',vin.value+'%');vin.dataset.holding='1';var id=row.dataset.entityId;clearTimeout(volTimer[id]);volTimer[id]=setTimeout(function(){sendVolume(row,+vin.value);},250);});root.addEventListener('change',function(e){var vin=e.target;if(!vin.matches||!vin.matches('.ha-np-vol input'))return;delete vin.dataset.holding;var row=vin.closest('.ha-np-row');if(row){clearTimeout(volTimer[row.dataset.entityId]);sendVolume(row,+vin.value);}});root.addEventListener('click',function(e){var bar=e.target.closest('.ha-np-bar');if(bar){var row=bar.closest('.ha-np-row');var np=bar.closest('.ha-np');var dur=row?+row.dataset.duration||0:0;if(!row||!np||!np.dataset.mediaUrl||!dur)return;var rect=bar.getBoundingClientRect();var frac=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));var pos=Math.round(frac*dur);row.dataset.position=String(pos);row.dataset.positionAt=String(Date.now());row.dataset.optimisticUntil=String(Date.now()+6000);tick(row);fetch(np.dataset.mediaUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'text/plain'},body:JSON.stringify({entity_id:row.dataset.entityId,action:'media_seek',position:pos})}).catch(function(){}).then(function(){setTimeout(poll,2500);});return;}var btn=e.target.closest('.ha-np-btn');if(!btn)return;var row=btn.closest('.ha-np-row');var np=btn.closest('.ha-np');if(!row||!np||!np.dataset.mediaUrl)return;e.preventDefault();e.stopPropagation();btn.dataset.busy='true';if(btn.dataset.action==='media_play_pause'){var now=row.dataset.state==='playing';row.dataset.state=now?'paused':'playing';if(!now)row.dataset.positionAt=String(Date.now());row.dataset.optimisticUntil=String(Date.now()+6000);}var title=row.querySelector('.ha-np-title');var was=title?title.textContent:'';function fail(msg){if(title){title.textContent='error: '+msg;setTimeout(function(){title.textContent=was;},4000);}}fetch(np.dataset.mediaUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'text/plain'},body:JSON.stringify({entity_id:row.dataset.entityId,action:btn.dataset.action})}).then(function(r){if(!r.ok)return r.text().then(function(t){fail(r.status+' '+(t||'').trim().slice(0,60));});}).catch(function(err){fail(String(err&&err.message||err));}).then(function(){setTimeout(function(){btn.dataset.busy='false';poll();},1500);setTimeout(poll,4000);});});if(pauseWhenHidden){document.addEventListener('visibilitychange',function(){if(document.hidden){stop();}else{poll();schedule();}});}if(!pauseWhenHidden||!document.hidden){poll();schedule();}})(this)`
+const bootstrapScript = `(function(img){var root=img.closest('.ha-widget');if(!root)return;var url=root.dataset.liveUrl;var interval=parseInt(root.dataset.pollMs,10)||10000;var pauseWhenHidden=root.dataset.pauseHidden==='true';var timer=null;function applyState(data){(data.rooms||[]).forEach(function(room){var card=root.querySelector('.ha-room[data-room="'+CSS.escape(room.room)+'"]');if(!card)return;var anyLit=false;(room.lights||[]).forEach(function(l){var el=card.querySelector('.ha-light[data-entity-id="'+CSS.escape(l.entity_id)+'"]');if(!el)return;el.dataset.on=l.on;if(l.on)anyLit=true;var hold=el.dataset.holdUntil&&Date.now()<+el.dataset.holdUntil;if(!hold){if(el.dataset.hasBrightness==='true')el.dataset.brightness=l.brightness;if(el.dataset.hasColorTemp==='true')el.dataset.colorTemp=l.color_temp;if(el.dataset.hasColor==='true'&&l.rgb)el.dataset.rgb=l.rgb.join(',');}});var anyOccupied=false;(room.occupancy||[]).forEach(function(o){if(o.attention)anyOccupied=true;var chip=card.querySelector('.ha-occ-chip[data-sensor-name="'+CSS.escape(o.name)+'"]');if(!chip)return;chip.dataset.occupied=o.attention;var label=chip.querySelector('.ha-occ-label');if(label)label.textContent=o.label;});(room.contacts||[]).forEach(function(c){var badge=card.querySelector('.ha-badge[data-sensor-name="'+CSS.escape(c.name)+'"]');if(!badge)return;badge.dataset.open=c.attention;var label=badge.querySelector('.ha-contact-label');if(label)label.textContent=c.label;});(room.devices||[]).forEach(function(d){var el=card.querySelector('.ha-device[data-entity-id="'+CSS.escape(d.entity_id)+'"]');if(!el)return;el.dataset.on=d.on;el.dataset.effect=d.effect||'';var hold=el.dataset.holdUntil&&Date.now()<+el.dataset.holdUntil;if(!hold&&el.dataset.hasTargetTemp==='true'){el.dataset.currentTemp=d.current_temp;el.dataset.targetTemp=d.target_temp;}});card.dataset.lit=anyLit;card.dataset.occupied=anyOccupied;});var np=root.querySelector('.ha-np');if(np&&data.media){(data.media||[]).forEach(function(m){var row=np.querySelector('.ha-np-row[data-entity-id="'+CSS.escape(m.entity_id)+'"]');if(!row)return;var holdPos=row.dataset.optimisticUntil&&Date.now()<+row.dataset.optimisticUntil;if(holdPos&&row.dataset.state!==m.state)return;row.dataset.state=m.state;var t=row.querySelector('.ha-np-title');if(t)t.textContent=m.title||m.state_label||'';var a=row.querySelector('.ha-np-artist');if(a)a.textContent=m.artist||'';if(!holdPos){row.dataset.position=m.position||0;row.dataset.positionAt=m.position_at||0;}row.dataset.duration=m.duration||0;var vol=row.querySelector('.ha-np-vol');var vin=vol&&vol.querySelector('input');if(vin){if(m.volume<0){vol.hidden=true;}else{vol.hidden=false;if(!vin.dataset.holding&&!(row.dataset.volUntil&&Date.now()<+row.dataset.volUntil)){var v=Math.round(m.volume*100);vin.value=v;vin.style.setProperty('--pct',v+'%');}}}var art=row.querySelector('.ha-np-art');var img=art&&art.querySelector('img');if(img&&(img.getAttribute('src')||'')!==(m.art_url||'')){img.setAttribute('src',m.art_url||'');art.dataset.hasArt=!!m.art_url;}tick(row);});}}function tick(row){var dur=+row.dataset.duration||0;var prog=row.querySelector('.ha-np-fill');if(!prog)return;if(!dur){prog.style.width='0';return;}var pos=+row.dataset.position||0;if(row.dataset.state==='playing'&&+row.dataset.positionAt>0)pos+=(Date.now()-(+row.dataset.positionAt))/1000;pos=Math.max(0,Math.min(dur,pos));prog.style.width=(100*pos/dur).toFixed(1)+'%';var tm=row.querySelector('.ha-np-time');if(tm)tm.textContent=clock(pos);var tt=row.querySelector('.ha-np-total');if(tt)tt.textContent=clock(dur);}function clock(s){s=Math.round(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0');}var ticker=setInterval(function(){root.querySelectorAll('.ha-np-row[data-state="playing"]').forEach(tick);},1000);function poll(){fetch(url,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(data){if(data)applyState(data);}).catch(function(){});}function stop(){if(timer){clearInterval(timer);timer=null;}}function schedule(){stop();timer=setInterval(poll,interval);}var volTimer={};function sendVolume(row,v){var np=row.closest('.ha-np');if(!np||!np.dataset.mediaUrl)return;row.dataset.volUntil=String(Date.now()+8000);fetch(np.dataset.mediaUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'text/plain'},body:JSON.stringify({entity_id:row.dataset.entityId,action:'volume_set',volume:v/100})}).catch(function(){});}root.addEventListener('input',function(e){var vin=e.target;if(!vin.matches||!vin.matches('.ha-np-vol input'))return;var row=vin.closest('.ha-np-row');if(!row)return;vin.style.setProperty('--pct',vin.value+'%');vin.dataset.holding='1';var id=row.dataset.entityId;clearTimeout(volTimer[id]);volTimer[id]=setTimeout(function(){sendVolume(row,+vin.value);},250);});root.addEventListener('change',function(e){var vin=e.target;if(!vin.matches||!vin.matches('.ha-np-vol input'))return;delete vin.dataset.holding;var row=vin.closest('.ha-np-row');if(row){clearTimeout(volTimer[row.dataset.entityId]);sendVolume(row,+vin.value);}});root.addEventListener('click',function(e){var bar=e.target.closest('.ha-np-bar');if(bar){var row=bar.closest('.ha-np-row');var np=bar.closest('.ha-np');var dur=row?+row.dataset.duration||0:0;if(!row||!np||!np.dataset.mediaUrl||!dur)return;var rect=bar.getBoundingClientRect();var frac=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));var pos=Math.round(frac*dur);row.dataset.position=String(pos);row.dataset.positionAt=String(Date.now());row.dataset.optimisticUntil=String(Date.now()+6000);tick(row);fetch(np.dataset.mediaUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'text/plain'},body:JSON.stringify({entity_id:row.dataset.entityId,action:'media_seek',position:pos})}).catch(function(){}).then(function(){setTimeout(poll,2500);});return;}var btn=e.target.closest('.ha-np-btn');if(!btn)return;var row=btn.closest('.ha-np-row');var np=btn.closest('.ha-np');if(!row||!np||!np.dataset.mediaUrl)return;e.preventDefault();e.stopPropagation();btn.dataset.busy='true';if(btn.dataset.action==='media_play_pause'){var now=row.dataset.state==='playing';row.dataset.state=now?'paused':'playing';if(!now)row.dataset.positionAt=String(Date.now());row.dataset.optimisticUntil=String(Date.now()+6000);}var title=row.querySelector('.ha-np-title');var was=title?title.textContent:'';function fail(msg){if(title){title.textContent='error: '+msg;setTimeout(function(){title.textContent=was;},4000);}}fetch(np.dataset.mediaUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'text/plain'},body:JSON.stringify({entity_id:row.dataset.entityId,action:btn.dataset.action})}).then(function(r){if(!r.ok)return r.text().then(function(t){fail(r.status+' '+(t||'').trim().slice(0,60));});}).catch(function(err){fail(String(err&&err.message||err));}).then(function(){setTimeout(function(){btn.dataset.busy='false';poll();},1500);setTimeout(poll,4000);});});if(pauseWhenHidden){document.addEventListener('visibilitychange',function(){if(document.hidden){stop();}else{poll();schedule();}});}if(!pauseWhenHidden||!document.hidden){poll();schedule();}})(this)`
 
 func RenderWidget(data WidgetData) string {
 	var b strings.Builder
@@ -278,8 +336,8 @@ func RenderWidget(data WidgetData) string {
 	if data.PauseWhenHidden {
 		pauseAttr = "true"
 	}
-	fmt.Fprintf(&b, `<div class="ha-widget ha-body" data-live-url="%s" data-poll-ms="%d" data-pause-hidden="%s">`,
-		html.EscapeString(data.LiveURL), data.PollIntervalMS, pauseAttr)
+	fmt.Fprintf(&b, `<div class="ha-widget ha-body" data-live-url="%s" data-poll-ms="%d" data-pause-hidden="%s" data-entity-url="%s">`,
+		html.EscapeString(data.LiveURL), data.PollIntervalMS, pauseAttr, html.EscapeString(data.EntityURL))
 
 	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span><span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
 
@@ -298,7 +356,7 @@ func RenderWidget(data WidgetData) string {
 		b.WriteString(`</div>`)
 	}
 
-	fmt.Fprintf(&b, `<img src="x" alt="" style="display:none;width:0;height:0" onerror="%s">`, html.EscapeString(bootstrapScript))
+	fmt.Fprintf(&b, `<img src="x" alt="" style="display:none;width:0;height:0" onerror="%s">`, html.EscapeString(bootstrapScript+entityControlScript))
 	b.WriteString(`</div>`)
 
 	return b.String()
@@ -331,8 +389,8 @@ func renderRoomCard(r RoomCardView) string {
 	if len(r.Lights) > 0 {
 		b.WriteString(`<div class="ha-room-lights">`)
 		for _, l := range r.Lights {
-			fmt.Fprintf(&b, `<span class="ha-light" data-entity-id="%s" data-on="%t">%s</span>`,
-				html.EscapeString(l.EntityID), l.On, l.IconSVG)
+			fmt.Fprintf(&b, `<span class="ha-light" data-entity-id="%s" data-on="%t"%s>%s</span>`,
+				html.EscapeString(l.EntityID), l.On, lightTileAttrs(l), l.IconSVG)
 		}
 		b.WriteString(`</div>`)
 	}

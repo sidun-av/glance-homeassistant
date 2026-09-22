@@ -311,9 +311,17 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 	}
 	for _, l := range card.Lights {
 		view.Lights = append(view.Lights, render.LightView{
-			EntityID: l.EntityID,
-			IconSVG:  render.LightIcon(l.Icon),
-			On:       l.On,
+			EntityID:        l.EntityID,
+			IconSVG:         render.LightIcon(l.Icon),
+			On:              l.On,
+			HasBrightness:   l.HasBrightness,
+			Brightness:      l.Brightness,
+			HasColorTemp:    l.HasColorTemp,
+			ColorTempKelvin: l.ColorTempKelvin,
+			MinColorTempK:   l.MinColorTempK,
+			MaxColorTempK:   l.MaxColorTempK,
+			HasColor:        l.HasColor,
+			RGB:             l.RGB,
 		})
 		if l.On {
 			view.Lit = true
@@ -330,11 +338,18 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 	}
 	for _, d := range card.Devices {
 		view.Devices = append(view.Devices, render.DeviceView{
-			EntityID: d.EntityID,
-			Name:     d.Name,
-			IconSVG:  render.DeviceIcon(d.Domain, d.Icon),
-			On:       d.On,
-			Effect:   d.Effect,
+			EntityID:      d.EntityID,
+			Name:          d.Name,
+			Domain:        d.Domain,
+			IconSVG:       render.DeviceIcon(d.Domain, d.Icon),
+			On:            d.On,
+			Effect:        d.Effect,
+			HasTargetTemp: d.HasTargetTemp,
+			CurrentTemp:   d.CurrentTemp,
+			TargetTemp:    d.TargetTemp,
+			MinTemp:       d.MinTemp,
+			MaxTemp:       d.MaxTemp,
+			TempStep:      d.TempStep,
 		})
 	}
 	return view
@@ -413,6 +428,16 @@ func mediaURL(publicURL string) string {
 		return ""
 	}
 	return strings.TrimRight(publicURL, "/") + "/media"
+}
+
+// entityURL is where a light/device tile's click or popover POSTs, under
+// public_url like /media and /live.json ("" when there is no public_url →
+// no interactivity).
+func entityURL(publicURL string) string {
+	if publicURL == "" {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + "/entity"
 }
 
 // artHandler proxies a media player's album art (HA's entity_picture,
@@ -501,6 +526,120 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("media %s %s from %s: ok", req.Action, req.EntityID, r.RemoteAddr)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// entityDomainActions is the allowlist for the generic entity-control
+// endpoint (a floorplan tile's click or popover): which domains it may act
+// on, and which actions. "toggle" always maps to the generic
+// homeassistant.toggle service, which HA routes to the right turn_on/
+// turn_off/toggle for whatever domain the entity actually is — one action
+// works for every domain listed here without hardcoding each domain's own
+// service name. set_brightness/set_color_temp/set_color are light-only
+// (light.turn_on with the matching service data); set_temperature is
+// climate-only (climate.set_temperature). media_player is deliberately
+// absent — it already has its own dedicated Now-playing controls (see
+// mediaHandler), and routing its device tile through a generic toggle would
+// give it a second, conflicting way to be controlled.
+var entityDomainActions = map[string]map[string]bool{
+	"light":        {"toggle": true, "set_brightness": true, "set_color_temp": true, "set_color": true},
+	"switch":       {"toggle": true},
+	"fan":          {"toggle": true},
+	"cover":        {"toggle": true},
+	"lock":         {"toggle": true},
+	"humidifier":   {"toggle": true},
+	"water_heater": {"toggle": true},
+	"vacuum":       {"toggle": true},
+	"climate":      {"toggle": true, "set_temperature": true},
+}
+
+// entityHandler proxies a floorplan tile's click or popover action to Home
+// Assistant. Modeled on mediaHandler (same CORS/decode/log shape), but
+// keyed by the entity's own domain (parsed from entity_id) against
+// entityDomainActions rather than one fixed domain, since a tile can be a
+// light, switch, fan, climate, ...
+func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST {entity_id, action}", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		EntityID    string   `json:"entity_id"`
+		Action      string   `json:"action"`
+		Brightness  *float64 `json:"brightness_pct"`    // set_brightness, 1..100
+		ColorTemp   *float64 `json:"color_temp_kelvin"` // set_color_temp
+		RGBColor    []int    `json:"rgb_color"`         // set_color, [r,g,b]
+		Temperature *float64 `json:"temperature"`       // set_temperature
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	domain := req.EntityID
+	if idx := strings.Index(req.EntityID, "."); idx != -1 {
+		domain = req.EntityID[:idx]
+	}
+	if !entityDomainActions[domain][req.Action] {
+		http.Error(w, "unsupported entity or action", http.StatusBadRequest)
+		return
+	}
+
+	data := map[string]any{"entity_id": req.EntityID}
+	service := req.Action
+	svcDomain := domain
+	switch req.Action {
+	case "toggle":
+		svcDomain = "homeassistant"
+	case "set_brightness":
+		if req.Brightness == nil || *req.Brightness < 1 || *req.Brightness > 100 {
+			http.Error(w, "brightness_pct must be 1..100", http.StatusBadRequest)
+			return
+		}
+		service = "turn_on"
+		data["brightness_pct"] = *req.Brightness
+	case "set_color_temp":
+		if req.ColorTemp == nil || *req.ColorTemp < 1000 || *req.ColorTemp > 12000 {
+			http.Error(w, "color_temp_kelvin must be 1000..12000", http.StatusBadRequest)
+			return
+		}
+		service = "turn_on"
+		data["color_temp_kelvin"] = *req.ColorTemp
+	case "set_color":
+		if len(req.RGBColor) != 3 {
+			http.Error(w, "rgb_color must be [r,g,b]", http.StatusBadRequest)
+			return
+		}
+		for _, c := range req.RGBColor {
+			if c < 0 || c > 255 {
+				http.Error(w, "rgb_color values must be 0..255", http.StatusBadRequest)
+				return
+			}
+		}
+		service = "turn_on"
+		data["rgb_color"] = req.RGBColor
+	case "set_temperature":
+		if req.Temperature == nil {
+			http.Error(w, "temperature is required", http.StatusBadRequest)
+			return
+		}
+		data["temperature"] = *req.Temperature
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	if err := a.client.CallServiceData(ctx, svcDomain, service, data); err != nil {
+		log.Printf("entity %s %s from %s: %v", req.Action, req.EntityID, r.RemoteAddr, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	log.Printf("entity %s %s from %s: ok", req.Action, req.EntityID, r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -794,6 +933,7 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		EditURL:         editHref,
 		Media:           media,
 		MediaURL:        mediaURL(a.cfg.PublicURL),
+		EntityURL:       entityURL(a.cfg.PublicURL),
 		Rooms:           views,
 		CardMinHeight:   a.cfg.Temperature.ChartHeight,
 		LiveURL:         liveURL(a.cfg.PublicURL),
@@ -841,6 +981,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	mux.HandleFunc("/widget", a.widgetHandler)
 	mux.HandleFunc("/live.json", a.liveHandler)
 	mux.HandleFunc("/media", a.mediaHandler)
+	mux.HandleFunc("/entity", a.entityHandler)
 	mux.HandleFunc("/art", a.artHandler)
 	ed := &editor.Handler{Store: a, Source: a}
 	ed.Register(mux, "")
@@ -859,6 +1000,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	if prefix := strings.TrimRight(cfg.PublicURL, "/"); strings.HasPrefix(prefix, "/") {
 		mux.HandleFunc(prefix+"/live.json", a.liveHandler)
 		mux.HandleFunc(prefix+"/media", a.mediaHandler)
+		mux.HandleFunc(prefix+"/entity", a.entityHandler)
 		mux.HandleFunc(prefix+"/art", a.artHandler)
 		ed.Register(mux, prefix)
 	}

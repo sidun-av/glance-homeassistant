@@ -3,8 +3,11 @@ package render
 import "encoding/json"
 
 type LiveLight struct {
-	EntityID string `json:"entity_id"`
-	On       bool   `json:"on"`
+	EntityID   string `json:"entity_id"`
+	On         bool   `json:"on"`
+	Brightness int    `json:"brightness"` // 0..100; meaningful only when the tile's data-has-brightness is true
+	ColorTemp  int    `json:"color_temp"` // Kelvin; meaningful only when data-has-color-temp is true
+	RGB        []int  `json:"rgb"`        // [r,g,b]; nil when the light has no color mode
 }
 
 type LiveSensor struct {
@@ -14,9 +17,11 @@ type LiveSensor struct {
 }
 
 type LiveDevice struct {
-	EntityID string `json:"entity_id"`
-	On       bool   `json:"on"`
-	Effect   string `json:"effect"`
+	EntityID    string  `json:"entity_id"`
+	On          bool    `json:"on"`
+	Effect      string  `json:"effect"`
+	CurrentTemp float64 `json:"current_temp"` // climate only; meaningful when data-has-target-temp is true
+	TargetTemp  float64 `json:"target_temp"`
 }
 
 type LiveRoom struct {
@@ -68,10 +73,14 @@ func RenderLive(rooms []RoomCardView, media ...MediaView) ([]byte, error) {
 			Devices:   make([]LiveDevice, len(r.Devices)),
 		}
 		for i, d := range r.Devices {
-			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect}
+			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect, CurrentTemp: d.CurrentTemp, TargetTemp: d.TargetTemp}
 		}
 		for i, l := range r.Lights {
-			lr.Lights[i] = LiveLight{EntityID: l.EntityID, On: l.On}
+			lv := LiveLight{EntityID: l.EntityID, On: l.On, Brightness: l.Brightness, ColorTemp: l.ColorTempKelvin}
+			if l.HasColor {
+				lv.RGB = []int{l.RGB[0], l.RGB[1], l.RGB[2]}
+			}
+			lr.Lights[i] = lv
 		}
 		for i, o := range r.Occupancy {
 			lr.Occupancy[i] = LiveSensor{Name: o.Name, Attention: o.Attention, Label: o.Label}

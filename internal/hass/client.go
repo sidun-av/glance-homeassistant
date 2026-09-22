@@ -106,6 +106,24 @@ type EntityState struct {
 	MediaPositionUpdatedAt string  // RFC3339 from HA
 	EntityPicture          string  // HA-relative URL of the album art
 	VolumeLevel            float64 // 0..1; -1 when the player reports none
+
+	// light only. supported_color_modes is present even while the light is
+	// off (it's a capability list, not a current value) — that's what the
+	// popover uses to decide which controls to show; the value fields below
+	// are best-effort since some integrations null them out while off.
+	Brightness          *int // 0..255
+	ColorTempKelvin     *int // resolved from color_temp_kelvin, or converted from the legacy color_temp (mireds) attribute
+	MinColorTempKelvin  *int
+	MaxColorTempKelvin  *int
+	RGBColor            []int // [r,g,b] 0..255 each
+	SupportedColorModes []string
+
+	// climate only
+	CurrentTemperature *float64
+	TargetTemperature  *float64
+	MinTemp            *float64
+	MaxTemp            *float64
+	TempStep           *float64
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -141,6 +159,20 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			MediaPositionUpdatedAt string   `json:"media_position_updated_at"`
 			EntityPicture          string   `json:"entity_picture"`
 			VolumeLevel            *float64 `json:"volume_level"`
+
+			Brightness          *int     `json:"brightness"`
+			ColorTempKelvin     *int     `json:"color_temp_kelvin"`
+			ColorTemp           *int     `json:"color_temp"` // legacy mireds
+			MinColorTempKelvin  *int     `json:"min_color_temp_kelvin"`
+			MaxColorTempKelvin  *int     `json:"max_color_temp_kelvin"`
+			RGBColor            []int    `json:"rgb_color"`
+			SupportedColorModes []string `json:"supported_color_modes"`
+
+			CurrentTemperature *float64 `json:"current_temperature"`
+			Temperature        *float64 `json:"temperature"`
+			MinTemp            *float64 `json:"min_temp"`
+			MaxTemp            *float64 `json:"max_temp"`
+			TargetTempStep     *float64 `json:"target_temp_step"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -158,6 +190,11 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 		if name == "" {
 			name = s.EntityID
 		}
+		colorTempK := s.Attributes.ColorTempKelvin
+		if colorTempK == nil && s.Attributes.ColorTemp != nil && *s.Attributes.ColorTemp > 0 {
+			k := 1000000 / *s.Attributes.ColorTemp
+			colorTempK = &k
+		}
 		states[s.EntityID] = EntityState{
 			EntityID:               s.EntityID,
 			Domain:                 domain,
@@ -173,6 +210,19 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			MediaPositionUpdatedAt: s.Attributes.MediaPositionUpdatedAt,
 			EntityPicture:          s.Attributes.EntityPicture,
 			VolumeLevel:            -1,
+
+			Brightness:          s.Attributes.Brightness,
+			ColorTempKelvin:     colorTempK,
+			MinColorTempKelvin:  s.Attributes.MinColorTempKelvin,
+			MaxColorTempKelvin:  s.Attributes.MaxColorTempKelvin,
+			RGBColor:            s.Attributes.RGBColor,
+			SupportedColorModes: s.Attributes.SupportedColorModes,
+
+			CurrentTemperature: s.Attributes.CurrentTemperature,
+			TargetTemperature:  s.Attributes.Temperature,
+			MinTemp:            s.Attributes.MinTemp,
+			MaxTemp:            s.Attributes.MaxTemp,
+			TempStep:           s.Attributes.TargetTempStep,
 		}
 		if s.Attributes.VolumeLevel != nil {
 			states[s.EntityID] = withVolume(states[s.EntityID], *s.Attributes.VolumeLevel)

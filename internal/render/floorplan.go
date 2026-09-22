@@ -308,8 +308,8 @@ var wallSlots = []string{"t", "b", "l", "r", "tl", "tr", "bl", "br", "c"}
 func roomTiles(r RoomCardView) []string {
 	var tiles []string
 	for _, l := range r.Lights {
-		tiles = append(tiles, fmt.Sprintf(`<span class="ha-light" data-entity-id="%s" data-on="%t">%s</span>`,
-			html.EscapeString(l.EntityID), l.On, l.IconSVG))
+		tiles = append(tiles, fmt.Sprintf(`<span class="ha-light" data-entity-id="%s" data-on="%t"%s>%s</span>`,
+			html.EscapeString(l.EntityID), l.On, lightTileAttrs(l), l.IconSVG))
 	}
 	for _, d := range r.Devices {
 		// The accent rides in a data attribute (not a style attr) because
@@ -318,8 +318,8 @@ func roomTiles(r RoomCardView) []string {
 		if d.Accent != "" {
 			accent = fmt.Sprintf(` data-accent="%s"`, html.EscapeString(d.Accent))
 		}
-		tiles = append(tiles, fmt.Sprintf(`<span class="ha-device" data-entity-id="%s" data-on="%t" data-effect="%s"%s title="%s">%s</span>`,
-			html.EscapeString(d.EntityID), d.On, html.EscapeString(d.Effect), accent, html.EscapeString(d.Name), d.IconSVG))
+		tiles = append(tiles, fmt.Sprintf(`<span class="ha-device" data-entity-id="%s" data-on="%t" data-effect="%s"%s%s title="%s">%s</span>`,
+			html.EscapeString(d.EntityID), d.On, html.EscapeString(d.Effect), accent, deviceTileAttrs(d), html.EscapeString(d.Name), d.IconSVG))
 	}
 	// Occupancy is not a tile on the map: the room's outline (data-occupied
 	// on the room, kept live by the poller) is the whole signal.
