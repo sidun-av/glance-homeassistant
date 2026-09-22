@@ -99,7 +99,7 @@ func TestRenderLive_IncludesMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), `"media":[{"entity_id":"media_player.x","state":"paused","state_label":"Paused","title":"T","artist":"A"}]`) {
+	if !strings.Contains(string(out), `"media":[{"entity_id":"media_player.x","state":"paused","state_label":"Paused","title":"T","artist":"A","position":0,"duration":0,"position_at":0,"art_url":""}]`) {
 		t.Errorf("payload: %s", out)
 	}
 }

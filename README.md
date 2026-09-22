@@ -69,9 +69,12 @@ Next to the map the floorplan layout lists every reachable `media_player` (anyth
 off/unavailable): room · player name, track title and artist (or its state), and previous /
 play-pause / next buttons that call the corresponding Home Assistant services through this
 service's `<public_url>/media` endpoint (POST `{entity_id, action}`; only `media_player.*` and the
-media_* transport services are accepted). Each card has its own accent colour, and the notes that
-drift up from that speaker's tile on the map use the same colour. Rows update live with the rest
-of the widget.
+media_* transport services are accepted), plus album art (proxied through `<public_url>/art` so the
+browser never needs the HA token) and a progress bar that keeps ticking between polls while a track
+plays. Cards share the panel's height so the panel matches the map. Each card has its own accent
+colour, and the notes that drift up from that speaker's tile on the map use the same colour. Rows
+update live with the rest of the widget; play/pause flips the card immediately and reconciles with
+HA on the next poll.
 
 ### Editing the map in the browser
 

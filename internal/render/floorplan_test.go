@@ -269,16 +269,19 @@ func TestRenderWidget_FloorplanGear(t *testing.T) {
 func TestRenderWidget_NowPlayingPanel(t *testing.T) {
 	fp, _ := ParseFloorplan([]string{"a"}, map[string]string{"a": "A"})
 	data := WidgetData{Layout: "floorplan", Floorplan: fp, MediaURL: "/ha-widget/media",
-		Media: []MediaView{{EntityID: "media_player.x", Name: "Speaker", Room: "Kitchen", State: "playing", Title: "Song", Artist: "Band", Accent: "#f0a6c8"}},
+		Media: []MediaView{{EntityID: "media_player.x", Name: "Speaker", Room: "Kitchen", State: "playing", Title: "Song", Artist: "Band", Accent: "#f0a6c8", Position: 61, Duration: 200, PositionAt: 1700000000000, ArtURL: "/ha-widget/art?entity_id=media_player.x"}},
 		Rooms: []RoomCardView{{Room: "A", Devices: []DeviceView{{EntityID: "media_player.x", Effect: "music", On: true, Accent: "#f0a6c8", IconSVG: "<svg/>"}}}}}
 	html := RenderWidget(data)
 	for _, want := range []string{
 		`<div class="ha-fp-layout">`,
 		`<div class="ha-np" data-media-url="/ha-widget/media">`,
-		`class="ha-np-row" data-entity-id="media_player.x" data-state="playing" style="--accent:#f0a6c8"`,
+		`class="ha-np-row" data-entity-id="media_player.x" data-state="playing" data-position="61" data-duration="200" data-position-at="1700000000000" style="--accent:#f0a6c8"`,
 		`Kitchen · Speaker`, `<span class="ha-np-title">Song</span>`, `<span class="ha-np-artist">Band</span>`,
 		`data-action="media_play_pause"`, `data-action="media_next_track"`,
 		`data-accent="#f0a6c8"`, `.ha-device[data-accent="#f0a6c8"]{--accent:#f0a6c8}`,
+		`data-position="61" data-duration="200" data-position-at="1700000000000"`,
+		`<span class="ha-np-art" data-has-art="true"><img src="/ha-widget/art?entity_id=media_player.x"`,
+		`<span class="ha-np-time">1:01</span>`, `style="width:30.5%"`, `<span class="ha-np-total">3:20</span>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q", want)
@@ -291,5 +294,13 @@ func TestRenderWidget_NowPlayingPanel(t *testing.T) {
 	data.MediaURL = ""
 	if strings.Contains(RenderWidget(data), `class="ha-np-btn"`) {
 		t.Error("no controls without MediaURL")
+	}
+}
+
+func TestClock(t *testing.T) {
+	for in, want := range map[float64]string{0: "0:00", 61: "1:01", 3599: "59:59", 3661: "1:01:01", -5: "0:00"} {
+		if got := Clock(in); got != want {
+			t.Errorf("Clock(%v)=%q want %q", in, got, want)
+		}
 	}
 }

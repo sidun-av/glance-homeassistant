@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/bits"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -373,7 +374,15 @@ func (a *app) buildModelWithMedia(ctx context.Context) ([]hass.RoomCard, []rende
 	}
 	media := make([]render.MediaView, len(players))
 	for i, p := range players {
-		media[i] = render.MediaView{EntityID: p.EntityID, Name: p.Name, Room: p.Room, State: p.State, Title: p.Title, Artist: p.Artist, Accent: accent[p.EntityID]}
+		m := render.MediaView{EntityID: p.EntityID, Name: p.Name, Room: p.Room, State: p.State, Title: p.Title, Artist: p.Artist, Accent: accent[p.EntityID],
+			Position: p.Position, Duration: p.Duration}
+		if t, err := time.Parse(time.RFC3339Nano, p.PositionUpdatedAt); err == nil {
+			m.PositionAt = t.UnixMilli()
+		}
+		if p.Picture != "" && a.cfg.PublicURL != "" {
+			m.ArtURL = strings.TrimRight(a.cfg.PublicURL, "/") + "/art?entity_id=" + url.QueryEscape(p.EntityID)
+		}
+		media[i] = m
 	}
 	return cards, media, nil
 }
@@ -398,6 +407,39 @@ func mediaURL(publicURL string) string {
 		return ""
 	}
 	return strings.TrimRight(publicURL, "/") + "/media"
+}
+
+// artHandler proxies a media player's album art (HA's entity_picture,
+// which needs the HA token) so the browser can show it without one.
+func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("entity_id")
+	if !strings.HasPrefix(id, "media_player.") {
+		http.Error(w, "entity_id must be a media_player", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	states, err := a.client.FetchStates(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	st, ok := states[id]
+	if !ok || st.EntityPicture == "" {
+		http.NotFound(w, r)
+		return
+	}
+	body, ctype, err := a.client.FetchPicture(ctx, st.EntityPicture)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if ctype == "" {
+		ctype = http.DetectContentType(body)
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	w.Write(body)
 }
 
 var mediaActions = map[string]bool{"media_play_pause": true, "media_next_track": true, "media_previous_track": true, "media_play": true, "media_pause": true, "media_stop": true}
@@ -776,6 +818,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	mux.HandleFunc("/widget", a.widgetHandler)
 	mux.HandleFunc("/live.json", a.liveHandler)
 	mux.HandleFunc("/media", a.mediaHandler)
+	mux.HandleFunc("/art", a.artHandler)
 	ed := &editor.Handler{Store: a, Source: a}
 	ed.Register(mux, "")
 
@@ -793,6 +836,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	if prefix := strings.TrimRight(cfg.PublicURL, "/"); strings.HasPrefix(prefix, "/") {
 		mux.HandleFunc(prefix+"/live.json", a.liveHandler)
 		mux.HandleFunc(prefix+"/media", a.mediaHandler)
+		mux.HandleFunc(prefix+"/art", a.artHandler)
 		ed.Register(mux, prefix)
 	}
 	return mux

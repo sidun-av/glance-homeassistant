@@ -92,15 +92,19 @@ func (c *Client) FetchAreas(ctx context.Context) ([]Room, error) {
 }
 
 type EntityState struct {
-	EntityID     string
-	Domain       string
-	State        string
-	FriendlyName string
-	DeviceClass  string
-	Icon         string
-	HvacAction   string // climate only: "heating", "cooling", "fan", "idle", ...
-	MediaTitle   string // media_player only
-	MediaArtist  string
+	EntityID               string
+	Domain                 string
+	State                  string
+	FriendlyName           string
+	DeviceClass            string
+	Icon                   string
+	HvacAction             string // climate only: "heating", "cooling", "fan", "idle", ...
+	MediaTitle             string // media_player only
+	MediaArtist            string
+	MediaPosition          float64 // seconds, as of MediaPositionUpdatedAt
+	MediaDuration          float64 // seconds; 0 = unknown
+	MediaPositionUpdatedAt string  // RFC3339 from HA
+	EntityPicture          string  // HA-relative URL of the album art
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -125,12 +129,16 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 		EntityID   string `json:"entity_id"`
 		State      string `json:"state"`
 		Attributes struct {
-			FriendlyName string `json:"friendly_name"`
-			DeviceClass  string `json:"device_class"`
-			Icon         string `json:"icon"`
-			HvacAction   string `json:"hvac_action"`
-			MediaTitle   string `json:"media_title"`
-			MediaArtist  string `json:"media_artist"`
+			FriendlyName           string  `json:"friendly_name"`
+			DeviceClass            string  `json:"device_class"`
+			Icon                   string  `json:"icon"`
+			HvacAction             string  `json:"hvac_action"`
+			MediaTitle             string  `json:"media_title"`
+			MediaArtist            string  `json:"media_artist"`
+			MediaPosition          float64 `json:"media_position"`
+			MediaDuration          float64 `json:"media_duration"`
+			MediaPositionUpdatedAt string  `json:"media_position_updated_at"`
+			EntityPicture          string  `json:"entity_picture"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -149,15 +157,19 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			name = s.EntityID
 		}
 		states[s.EntityID] = EntityState{
-			EntityID:     s.EntityID,
-			Domain:       domain,
-			State:        s.State,
-			FriendlyName: name,
-			DeviceClass:  s.Attributes.DeviceClass,
-			Icon:         s.Attributes.Icon,
-			HvacAction:   s.Attributes.HvacAction,
-			MediaTitle:   s.Attributes.MediaTitle,
-			MediaArtist:  s.Attributes.MediaArtist,
+			EntityID:               s.EntityID,
+			Domain:                 domain,
+			State:                  s.State,
+			FriendlyName:           name,
+			DeviceClass:            s.Attributes.DeviceClass,
+			Icon:                   s.Attributes.Icon,
+			HvacAction:             s.Attributes.HvacAction,
+			MediaTitle:             s.Attributes.MediaTitle,
+			MediaArtist:            s.Attributes.MediaArtist,
+			MediaPosition:          s.Attributes.MediaPosition,
+			MediaDuration:          s.Attributes.MediaDuration,
+			MediaPositionUpdatedAt: s.Attributes.MediaPositionUpdatedAt,
+			EntityPicture:          s.Attributes.EntityPicture,
 		}
 	}
 	return states, nil
@@ -403,4 +415,30 @@ func (c *Client) CallService(ctx context.Context, domain, service, entityID stri
 		return fmt.Errorf("%s.%s returned status %d", domain, service, resp.StatusCode)
 	}
 	return nil
+}
+
+// FetchPicture streams an HA-relative picture URL (an entity_picture)
+// with this client's token, returning the body and its content type.
+func (c *Client) FetchPicture(ctx context.Context, relURL string) ([]byte, string, error) {
+	if !strings.HasPrefix(relURL, "/") {
+		return nil, "", fmt.Errorf("picture url must be HA-relative")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+relURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("picture returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, "", err
+	}
+	return body, resp.Header.Get("Content-Type"), nil
 }

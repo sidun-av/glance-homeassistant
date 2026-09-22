@@ -217,12 +217,16 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 
 // MediaPlayer is one row of the "Now playing" panel.
 type MediaPlayer struct {
-	EntityID string
-	Name     string
-	Room     string // Area name, "" when unassigned
-	State    string // playing, paused, idle, on, ...
-	Title    string
-	Artist   string
+	EntityID          string
+	Name              string
+	Room              string // Area name, "" when unassigned
+	State             string // playing, paused, idle, on, ...
+	Title             string
+	Artist            string
+	Position          float64
+	Duration          float64
+	PositionUpdatedAt string
+	Picture           string // HA-relative entity_picture, "" if none
 }
 
 // BuildMediaPlayers lists every media_player that is reachable (not
@@ -244,7 +248,8 @@ func BuildMediaPlayers(rooms []Room, states map[string]EntityState) []MediaPlaye
 		case "unavailable", "unknown", "off", "":
 			continue
 		}
-		out = append(out, MediaPlayer{EntityID: id, Name: st.FriendlyName, Room: roomOf[id], State: st.State, Title: st.MediaTitle, Artist: st.MediaArtist})
+		out = append(out, MediaPlayer{EntityID: id, Name: st.FriendlyName, Room: roomOf[id], State: st.State, Title: st.MediaTitle, Artist: st.MediaArtist,
+			Position: st.MediaPosition, Duration: st.MediaDuration, PositionUpdatedAt: st.MediaPositionUpdatedAt, Picture: st.EntityPicture})
 	}
 	rank := func(s string) int {
 		switch s {
