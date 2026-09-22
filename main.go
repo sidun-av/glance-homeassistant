@@ -377,7 +377,7 @@ func (a *app) buildModelWithMedia(ctx context.Context) ([]hass.RoomCard, []rende
 	media := make([]render.MediaView, len(players))
 	for i, p := range players {
 		m := render.MediaView{EntityID: p.EntityID, Name: p.Name, Room: p.Room, State: p.State, Title: p.Title, Artist: p.Artist, Accent: accent[p.EntityID],
-			Position: p.Position, Duration: p.Duration}
+			Position: p.Position, Duration: p.Duration, Volume: p.Volume}
 		if t, err := time.Parse(time.RFC3339Nano, p.PositionUpdatedAt); err == nil {
 			m.PositionAt = t.UnixMilli()
 		}
@@ -448,7 +448,7 @@ func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-var mediaActions = map[string]bool{"media_play_pause": true, "media_next_track": true, "media_previous_track": true, "media_play": true, "media_pause": true, "media_stop": true}
+var mediaActions = map[string]bool{"media_play_pause": true, "media_next_track": true, "media_previous_track": true, "media_play": true, "media_pause": true, "media_stop": true, "volume_set": true, "media_seek": true}
 
 // mediaHandler proxies a Now-playing button press to Home Assistant. Only
 // the listed media_player services are allowed, on media_player.* ids.
@@ -465,8 +465,10 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		EntityID string `json:"entity_id"`
-		Action   string `json:"action"`
+		EntityID string   `json:"entity_id"`
+		Action   string   `json:"action"`
+		Volume   *float64 `json:"volume"`   // volume_set only, 0..1
+		Position *float64 `json:"position"` // media_seek only, seconds
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -476,9 +478,24 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported entity or action", http.StatusBadRequest)
 		return
 	}
+	data := map[string]any{"entity_id": req.EntityID}
+	if req.Action == "volume_set" {
+		if req.Volume == nil || *req.Volume < 0 || *req.Volume > 1 {
+			http.Error(w, "volume must be 0..1", http.StatusBadRequest)
+			return
+		}
+		data["volume_level"] = *req.Volume
+	}
+	if req.Action == "media_seek" {
+		if req.Position == nil || *req.Position < 0 {
+			http.Error(w, "position must be >= 0 seconds", http.StatusBadRequest)
+			return
+		}
+		data["seek_position"] = *req.Position
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	if err := a.client.CallService(ctx, "media_player", req.Action, req.EntityID); err != nil {
+	if err := a.client.CallServiceData(ctx, "media_player", req.Action, data); err != nil {
 		log.Printf("media %s %s from %s: %v", req.Action, req.EntityID, r.RemoteAddr, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

@@ -259,6 +259,13 @@ func TestDeviceEffect_ClimateWithoutHvacActionUsesMode(t *testing.T) {
 	}
 }
 
+func TestBuildMediaPlayers_CarriesVolume(t *testing.T) {
+	states := map[string]EntityState{"media_player.a": {EntityID: "media_player.a", Domain: "media_player", State: "playing", VolumeLevel: 0.4}}
+	if got := BuildMediaPlayers(nil, states); len(got) != 1 || got[0].Volume != 0.4 {
+		t.Errorf("got %+v", got)
+	}
+}
+
 func TestBuildMediaPlayers(t *testing.T) {
 	rooms := []Room{{Name: "Kitchen", EntityIDs: []string{"media_player.kitchen"}}}
 	states := map[string]EntityState{

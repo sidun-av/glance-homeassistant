@@ -37,6 +37,7 @@ type LiveMedia struct {
 	Duration   float64 `json:"duration"`
 	PositionAt int64   `json:"position_at"`
 	ArtURL     string  `json:"art_url"`
+	Volume     float64 `json:"volume"`
 }
 
 type LivePayload struct {
@@ -53,7 +54,7 @@ func RenderLive(rooms []RoomCardView, media ...MediaView) ([]byte, error) {
 	payload := LivePayload{Rooms: []LiveRoom{}, Media: []LiveMedia{}}
 	for _, m := range media {
 		payload.Media = append(payload.Media, LiveMedia{EntityID: m.EntityID, State: m.State, StateLabel: stateLabel(m.State), Title: m.Title, Artist: m.Artist,
-			Position: m.Position, Duration: m.Duration, PositionAt: m.PositionAt, ArtURL: m.ArtURL})
+			Position: m.Position, Duration: m.Duration, PositionAt: m.PositionAt, ArtURL: m.ArtURL, Volume: m.Volume})
 	}
 	for _, r := range rooms {
 		if len(r.Lights) == 0 && len(r.Occupancy) == 0 && len(r.Contacts) == 0 && len(r.Devices) == 0 {

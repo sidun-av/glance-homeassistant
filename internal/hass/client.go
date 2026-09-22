@@ -105,6 +105,7 @@ type EntityState struct {
 	MediaDuration          float64 // seconds; 0 = unknown
 	MediaPositionUpdatedAt string  // RFC3339 from HA
 	EntityPicture          string  // HA-relative URL of the album art
+	VolumeLevel            float64 // 0..1; -1 when the player reports none
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -129,16 +130,17 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 		EntityID   string `json:"entity_id"`
 		State      string `json:"state"`
 		Attributes struct {
-			FriendlyName           string  `json:"friendly_name"`
-			DeviceClass            string  `json:"device_class"`
-			Icon                   string  `json:"icon"`
-			HvacAction             string  `json:"hvac_action"`
-			MediaTitle             string  `json:"media_title"`
-			MediaArtist            string  `json:"media_artist"`
-			MediaPosition          float64 `json:"media_position"`
-			MediaDuration          float64 `json:"media_duration"`
-			MediaPositionUpdatedAt string  `json:"media_position_updated_at"`
-			EntityPicture          string  `json:"entity_picture"`
+			FriendlyName           string   `json:"friendly_name"`
+			DeviceClass            string   `json:"device_class"`
+			Icon                   string   `json:"icon"`
+			HvacAction             string   `json:"hvac_action"`
+			MediaTitle             string   `json:"media_title"`
+			MediaArtist            string   `json:"media_artist"`
+			MediaPosition          float64  `json:"media_position"`
+			MediaDuration          float64  `json:"media_duration"`
+			MediaPositionUpdatedAt string   `json:"media_position_updated_at"`
+			EntityPicture          string   `json:"entity_picture"`
+			VolumeLevel            *float64 `json:"volume_level"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -170,6 +172,10 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			MediaDuration:          s.Attributes.MediaDuration,
 			MediaPositionUpdatedAt: s.Attributes.MediaPositionUpdatedAt,
 			EntityPicture:          s.Attributes.EntityPicture,
+			VolumeLevel:            -1,
+		}
+		if s.Attributes.VolumeLevel != nil {
+			states[s.EntityID] = withVolume(states[s.EntityID], *s.Attributes.VolumeLevel)
 		}
 	}
 	return states, nil
@@ -396,10 +402,21 @@ func (s SunState) SolarNoon() (noon time.Time, ok bool) {
 	return rise.Add(set.Sub(rise) / 2), true
 }
 
+func withVolume(st EntityState, v float64) EntityState {
+	st.VolumeLevel = v
+	return st
+}
+
 // CallService invokes a Home Assistant service on one entity, e.g.
 // ("media_player", "media_play_pause", "media_player.kitchen").
 func (c *Client) CallService(ctx context.Context, domain, service, entityID string) error {
-	body, _ := json.Marshal(map[string]string{"entity_id": entityID})
+	return c.CallServiceData(ctx, domain, service, map[string]any{"entity_id": entityID})
+}
+
+// CallServiceData is CallService with arbitrary service data (must
+// include entity_id), e.g. volume_set with volume_level.
+func (c *Client) CallServiceData(ctx context.Context, domain, service string, data map[string]any) error {
+	body, _ := json.Marshal(data)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/services/"+domain+"/"+service, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)

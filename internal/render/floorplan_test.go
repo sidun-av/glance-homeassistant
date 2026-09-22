@@ -269,7 +269,7 @@ func TestRenderWidget_FloorplanGear(t *testing.T) {
 func TestRenderWidget_NowPlayingPanel(t *testing.T) {
 	fp, _ := ParseFloorplan([]string{"a"}, map[string]string{"a": "A"})
 	data := WidgetData{Layout: "floorplan", Floorplan: fp, MediaURL: "/ha-widget/media",
-		Media: []MediaView{{EntityID: "media_player.x", Name: "Speaker", Room: "Kitchen", State: "playing", Title: "Song", Artist: "Band", Accent: "#f0a6c8", Position: 61, Duration: 200, PositionAt: 1700000000000, ArtURL: "/ha-widget/art?entity_id=media_player.x"}},
+		Media: []MediaView{{EntityID: "media_player.x", Name: "Speaker", Room: "Kitchen", State: "playing", Title: "Song", Artist: "Band", Accent: "#f0a6c8", Position: 61, Duration: 200, PositionAt: 1700000000000, ArtURL: "/ha-widget/art?entity_id=media_player.x", Volume: 0.35}},
 		Rooms: []RoomCardView{{Room: "A", Devices: []DeviceView{{EntityID: "media_player.x", Effect: "music", On: true, Accent: "#f0a6c8", IconSVG: "<svg/>"}}}}}
 	html := RenderWidget(data)
 	for _, want := range []string{
@@ -282,6 +282,7 @@ func TestRenderWidget_NowPlayingPanel(t *testing.T) {
 		`data-position="61" data-duration="200" data-position-at="1700000000000"`,
 		`<span class="ha-np-art" data-has-art="true"><img src="/ha-widget/art?entity_id=media_player.x"`,
 		`<span class="ha-np-time">1:01</span>`, `style="width:30.5%"`, `<span class="ha-np-total">3:20</span>`,
+		`<input type="range" min="0" max="100" step="1" value="35" style="--pct:35%"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q", want)
@@ -302,5 +303,12 @@ func TestClock(t *testing.T) {
 		if got := Clock(in); got != want {
 			t.Errorf("Clock(%v)=%q want %q", in, got, want)
 		}
+	}
+}
+
+func TestRenderNowPlayingRow_NoVolumeHidesSlider(t *testing.T) {
+	html := renderNowPlayingRow(MediaView{EntityID: "media_player.x", State: "idle", Volume: -1}, true)
+	if !strings.Contains(html, `<span class="ha-np-vol" hidden`) {
+		t.Errorf("slider must be hidden without a volume: %s", html)
 	}
 }

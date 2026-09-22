@@ -226,7 +226,8 @@ type MediaPlayer struct {
 	Position          float64
 	Duration          float64
 	PositionUpdatedAt string
-	Picture           string // HA-relative entity_picture, "" if none
+	Picture           string  // HA-relative entity_picture, "" if none
+	Volume            float64 // 0..1, -1 unknown
 }
 
 // BuildMediaPlayers lists every media_player that is reachable (not
@@ -249,7 +250,7 @@ func BuildMediaPlayers(rooms []Room, states map[string]EntityState) []MediaPlaye
 			continue
 		}
 		out = append(out, MediaPlayer{EntityID: id, Name: st.FriendlyName, Room: roomOf[id], State: st.State, Title: st.MediaTitle, Artist: st.MediaArtist,
-			Position: st.MediaPosition, Duration: st.MediaDuration, PositionUpdatedAt: st.MediaPositionUpdatedAt, Picture: st.EntityPicture})
+			Position: st.MediaPosition, Duration: st.MediaDuration, PositionUpdatedAt: st.MediaPositionUpdatedAt, Picture: st.EntityPicture, Volume: st.VolumeLevel})
 	}
 	rank := func(s string) int {
 		switch s {

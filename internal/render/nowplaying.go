@@ -19,6 +19,7 @@ type MediaView struct {
 	Duration   float64 // seconds, 0 = no progress bar
 	PositionAt int64   // unix ms when Position was reported (0 = unknown)
 	ArtURL     string  // album art through this service's /art proxy, "" = none
+	Volume     float64 // 0..1; <0 = player has no volume → no slider
 }
 
 // accentPalette gives every media player its own colour, stable while the
@@ -54,7 +55,17 @@ const nowPlayingCSS = `
 	.ha-np-title{font-size:13px;font-weight:600;color:var(--color-text-highlight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-artist{font-size:11px;color:var(--color-text-base);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 	.ha-np-row[data-state="playing"] .ha-np-title{color:var(--accent)}
-	.ha-np-ctl{grid-column:2;display:flex;gap:4px;justify-self:start;margin-left:-6px}
+	.ha-np-ctl{grid-column:2;display:flex;gap:4px;align-items:center;justify-self:stretch;margin-left:-6px;min-width:0}
+	.ha-np-vol{flex:1 1 60px;max-width:150px;margin-left:10px;display:flex;align-items:center;gap:6px;min-width:0}
+	.ha-np-vol svg{width:14px;height:14px;flex:none}
+	.ha-np-vol svg path{fill:var(--color-text-subdue)}
+	.ha-np-vol input{flex:1;min-width:0;height:14px;margin:0;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+	.ha-np-vol input::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--accent) var(--pct,0%),color-mix(in srgb,var(--color-text-base) 16%,transparent) var(--pct,0%))}
+	.ha-np-vol input::-moz-range-track{height:4px;border-radius:2px;background:color-mix(in srgb,var(--color-text-base) 16%,transparent)}
+	.ha-np-vol input::-moz-range-progress{height:4px;border-radius:2px;background:var(--accent)}
+	.ha-np-vol input::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--accent);margin-top:-4px;border:0}
+	.ha-np-vol input::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--accent);border:0}
+	.ha-np-vol[hidden]{display:none}
 	.ha-np-btn{width:30px;height:30px;border:0;border-radius:6px;background:transparent;color:var(--color-text-base);cursor:pointer;
 	  display:flex;align-items:center;justify-content:center;font:inherit;padding:0}
 	.ha-np-btn:hover{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--color-text-highlight)}
@@ -65,7 +76,8 @@ const nowPlayingCSS = `
 	/* Progress: the bar spans the text+controls columns under them. */
 	.ha-np-prog{grid-column:2;align-self:end;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--color-text-subdue);font-variant-numeric:tabular-nums}
 	.ha-np-row[data-duration="0"] .ha-np-prog{display:none}
-	.ha-np-bar{flex:1;display:block;height:4px;border-radius:2px;background:color-mix(in srgb,var(--color-text-base) 16%,transparent);overflow:hidden}
+	.ha-np-bar{flex:1;display:block;height:4px;border-radius:2px;background:color-mix(in srgb,var(--color-text-base) 16%,transparent);overflow:hidden;cursor:pointer;position:relative}
+	.ha-np-bar::before{content:"";position:absolute;inset:-6px 0}
 	.ha-np-fill{display:block;height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .5s linear}
 `
 
@@ -75,6 +87,8 @@ const (
 	glyphPlay  = `<svg class="ha-np-ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>`
 	glyphPause = `<svg class="ha-np-ico-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>`
 	glyphNext  = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16,18H18V6H16M6,18L14.5,12L6,6V18Z"/></svg>`
+	// mdi:volume-medium
+	glyphVol = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5,9V15H9L14,20V4L9,9M18.5,12C18.5,10.23 17.5,8.71 16,7.97V16C17.5,15.29 18.5,13.76 18.5,12Z"/></svg>`
 )
 
 // renderNowPlaying draws the panel. mediaURL is the endpoint the buttons
@@ -110,8 +124,16 @@ func renderNowPlayingRow(m MediaView, controls bool) string {
 	fmt.Fprintf(&b, `<span class="ha-np-text"><span class="ha-np-name">%s</span><span class="ha-np-title">%s</span><span class="ha-np-artist">%s</span></span>`,
 		html.EscapeString(name), html.EscapeString(title), html.EscapeString(artist))
 	if controls {
-		fmt.Fprintf(&b, `<span class="ha-np-ctl"><button type="button" class="ha-np-btn" data-action="media_previous_track" title="Previous">%s</button><button type="button" class="ha-np-btn ha-np-play" data-action="media_play_pause" title="Play / pause">%s%s</button><button type="button" class="ha-np-btn" data-action="media_next_track" title="Next">%s</button></span>`,
+		fmt.Fprintf(&b, `<span class="ha-np-ctl"><button type="button" class="ha-np-btn" data-action="media_previous_track" title="Previous">%s</button><button type="button" class="ha-np-btn ha-np-play" data-action="media_play_pause" title="Play / pause">%s%s</button><button type="button" class="ha-np-btn" data-action="media_next_track" title="Next">%s</button>`,
 			glyphPrev, glyphPlay, glyphPause, glyphNext)
+		hidden := ""
+		vol := 0
+		if m.Volume < 0 {
+			hidden = " hidden"
+		} else {
+			vol = int(m.Volume*100 + 0.5)
+		}
+		fmt.Fprintf(&b, `<span class="ha-np-vol"%s title="Volume">%s<input type="range" min="0" max="100" step="1" value="%d" style="--pct:%d%%" aria-label="Volume"></span></span>`, hidden, glyphVol, vol, vol)
 	} else {
 		b.WriteString(`<span></span>`)
 	}
