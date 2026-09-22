@@ -102,8 +102,8 @@ func TestRenderWidget_FloorplanLayout(t *testing.T) {
 		`<span class="ha-fp-temp">22°<span class="ha-fp-trend" data-trend="up">↑</span></span>`,
 		`data-entity-id="light.lr_main" data-on="true"`,
 		`data-slot="t" class="ha-light" data-entity-id="light.lr_main"`,
-		`data-slot="b" class="ha-occ-chip ha-fp-motion" data-sensor-name="LR Motion" data-occupied="true"`,
-		`data-slot="l" class="ha-badge" data-sensor-name="LR Window"`,
+		`data-slot="b" class="ha-badge" data-sensor-name="LR Window"`,
+		`class="ha-fp-icons" style="--spread:1.00"`,
 		`class="ha-fp-icons"`,
 		`data-sensor-name="LR Window" data-open="true"`,
 		// Mapped rooms with no HA data still get drawn, empty, so the map keeps its shape.
@@ -175,10 +175,24 @@ func TestRenderFloorplan_MaxWidth(t *testing.T) {
 	}
 }
 
-func TestRenderFloorplanRoom_MotionIconCarriesLiveContract(t *testing.T) {
-	html := renderFloorplanRoom("k", RoomCardView{Room: "R", Occupancy: []SensorBadgeView{{Name: "M", Attention: false, Label: "Clear"}}})
-	if !strings.Contains(html, `data-sensor-name="M" data-occupied="false"`) || !strings.Contains(html, "<svg") {
-		t.Errorf("motion icon must keep data-sensor-name/data-occupied and render an svg: %s", html)
+func TestRenderFloorplanRoom_OccupancyIsOutlineOnly(t *testing.T) {
+	html := renderFloorplanRoom("k", RoomCardView{Room: "R", Occupied: true, Occupancy: []SensorBadgeView{{Name: "M", Attention: true, Label: "Occupied"}}})
+	if strings.Contains(html, "ha-occ-chip") || strings.Contains(html, "ha-fp-icons") {
+		t.Errorf("occupancy must not render a tile: %s", html)
+	}
+	if !strings.Contains(html, `data-occupied="true"`) {
+		t.Error("room must still carry data-occupied for the outline")
+	}
+}
+
+func TestRenderFloorplanRoom_SpreadNarrowsWithSources(t *testing.T) {
+	r := RoomCardView{Room: "R", Lights: []LightView{{EntityID: "a"}, {EntityID: "b"}}, Devices: []DeviceView{{EntityID: "m", Effect: ""}}}
+	if !strings.Contains(renderFloorplanRoom("k", r), `style="--spread:0.71"`) {
+		t.Error("two lights + a speaker → spread 0.71 (speaker casts nothing)")
+	}
+	r.Lights = append(r.Lights, LightView{EntityID: "c"}, LightView{EntityID: "d"})
+	if !strings.Contains(renderFloorplanRoom("k", r), `style="--spread:0.60"`) {
+		t.Error("four lights → floor 0.6")
 	}
 }
 

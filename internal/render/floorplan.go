@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"html"
+	"math"
 	"sort"
 	"strings"
 )
@@ -149,7 +150,7 @@ const floorplanCSS = `
 	/* The flow: a cone whose apex is the tile's centre, drawn pointing
 	   "down" in its own frame and rotated by --dir toward the room centre.
 	   ::before is the soft body, ::after the moving wave stripes (air only). */
-	.ha-fp-icons>span::before,.ha-fp-icons>span::after{content:"";position:absolute;left:50%;top:50%;width:calc(var(--len) * .9);height:var(--len);
+	.ha-fp-icons>span::before,.ha-fp-icons>span::after{content:"";position:absolute;left:50%;top:50%;width:calc(var(--len) * .9 * var(--spread,1));height:calc(var(--len) * .92);mix-blend-mode:screen;
 	  transform-origin:50% 0;transform:translateX(-50%) rotate(var(--dir)) scaleY(.15);opacity:0;pointer-events:none;
 	  clip-path:polygon(50% 0,100% 100%,0 100%);transition:opacity .5s ease,transform .6s ease;
 	  /* soft edges + fade along the beam, like a spotlight cone */
@@ -173,10 +174,6 @@ const floorplanCSS = `
 	.ha-fp-icons .ha-device[data-on="true"][data-effect="heat"] svg path{fill:#ff9646}
 	.ha-fp-icons .ha-device[data-on="true"][data-effect="fan"] svg{animation:ha-fp-spin 2.4s linear infinite}
 	@keyframes ha-fp-spin{to{transform:rotate(360deg)}}
-	.ha-fp-icons .ha-occ-chip{border:0;padding:0;background:none;font-size:0;gap:0}
-	.ha-fp-icons .ha-occ-chip .ha-occ-dot,.ha-fp-icons .ha-occ-chip .ha-occ-label{display:none}
-	.ha-fp-icons .ha-occ-chip svg path{fill:var(--color-text-subdue);opacity:.25;transition:fill .2s,opacity .2s}
-	.ha-fp-icons .ha-occ-chip[data-occupied="true"] svg path{fill:var(--color-primary);opacity:1;filter:drop-shadow(0 0 4px color-mix(in srgb,var(--color-primary) 60%,transparent))}
 	.ha-fp-icons .ha-badge{gap:0;font-size:0}
 	.ha-fp-icons .ha-badge .ha-contact-label{display:none}
 `
@@ -225,7 +222,7 @@ func renderFloorplanRoom(key string, r RoomCardView) string {
 	}
 	tiles := roomTiles(r)
 	if len(tiles) > 0 {
-		b.WriteString(`<span class="ha-fp-icons">`)
+		fmt.Fprintf(&b, `<span class="ha-fp-icons" style="--spread:%.2f">`, beamSpread(r))
 		for i, tile := range tiles {
 			b.WriteString(strings.Replace(tile, `<span class="`, fmt.Sprintf(`<span data-slot="%s" class="`, wallSlots[min(i, len(wallSlots)-1)]), 1))
 		}
@@ -254,16 +251,28 @@ func roomTiles(r RoomCardView) []string {
 		tiles = append(tiles, fmt.Sprintf(`<span class="ha-device" data-entity-id="%s" data-on="%t" data-effect="%s" title="%s">%s</span>`,
 			html.EscapeString(d.EntityID), d.On, html.EscapeString(d.Effect), html.EscapeString(d.Name), d.IconSVG))
 	}
-	// Keeps class ha-occ-chip + data-sensor-name so the live poller's
-	// existing selector updates data-occupied here too; the chip's
-	// dot/label are hidden by CSS, the running figure is what shows.
-	for _, o := range r.Occupancy {
-		tiles = append(tiles, fmt.Sprintf(`<span class="ha-occ-chip ha-fp-motion" data-sensor-name="%s" data-occupied="%t" title="%s">%s<span class="ha-occ-label">%s</span></span>`,
-			html.EscapeString(o.Name), o.Attention, html.EscapeString(o.Label), MotionIcon(), html.EscapeString(o.Label)))
-	}
+	// Occupancy is not a tile on the map: the room's outline (data-occupied
+	// on the room, kept live by the poller) is the whole signal.
 	for _, c := range r.Contacts {
 		tiles = append(tiles, fmt.Sprintf(`<span class="ha-badge" data-sensor-name="%s" data-open="%t" title="%s">%s<span class="ha-contact-label">%s</span></span>`,
 			html.EscapeString(c.Name), c.Attention, html.EscapeString(c.Label), ContactIcon(), html.EscapeString(c.Label)))
 	}
 	return tiles
+}
+
+// beamSpread narrows every beam as more beam-casting sources share a room
+// so they meet at the centre instead of piling on top of each other:
+// 1 source → full width, 2 → ~0.7, 3+ → 0.6 (floor, so a beam still reads
+// as a beam). Only lights and air devices count; a speaker casts nothing.
+func beamSpread(r RoomCardView) float64 {
+	n := len(r.Lights)
+	for _, d := range r.Devices {
+		if d.Effect != "" {
+			n++
+		}
+	}
+	if n <= 1 {
+		return 1
+	}
+	return math.Max(0.6, 1/math.Sqrt(float64(n)))
 }
