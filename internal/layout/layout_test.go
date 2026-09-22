@@ -31,7 +31,16 @@ func TestValidate_OK_AndDefaults(t *testing.T) {
 		t.Errorf("defaults not applied: version=%d grid=%+v (kitchen is 2 wide x 4 tall on the map)", l.Version, l.Rooms[1].Grid)
 	}
 	if l.Rooms[0].Grid != (Grid{Rows: 3, Columns: 3}) {
-		t.Errorf("explicit grid must be kept: %+v", l.Rooms[0].Grid)
+		t.Errorf("explicit grid with placed entities must be kept: %+v", l.Rooms[0].Grid)
+	}
+	// Legacy: an untouched 3x3 (the old default) becomes automatic.
+	l2 := sample()
+	l2.Rooms[1].Grid = Grid{Rows: 3, Columns: 3}
+	if err := l2.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if l2.Rooms[1].Grid != (Grid{Rows: 4, Columns: 2, Auto: true}) {
+		t.Errorf("legacy empty 3x3 must migrate to auto: %+v", l2.Rooms[1].Grid)
 	}
 }
 

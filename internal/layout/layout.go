@@ -104,6 +104,11 @@ func (l *Layout) Validate() error {
 		if (maxR-minR+1)*(maxC-minC+1) != len(r.Cells) {
 			return fmt.Errorf("room %q: must be one solid rectangle", label)
 		}
+		// Layouts saved before "auto" existed carry the old fixed 3x3
+		// default; treat an untouched one (nothing placed) as automatic.
+		if !r.Grid.Auto && r.Grid.Rows == 3 && r.Grid.Columns == 3 && len(r.Entities) == 0 {
+			r.Grid.Auto = true
+		}
 		if r.Grid.Auto || (r.Grid.Rows < 1 && r.Grid.Columns < 1) {
 			// An automatic grid mirrors the room's footprint, so a 2x4 room
 			// on the map gets a 2x4 grid inside — and keeps following the
