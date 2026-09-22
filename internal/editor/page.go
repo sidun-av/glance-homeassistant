@@ -47,7 +47,7 @@ body.dragging *{cursor:inherit!important}
 .room.sel{border-color:var(--accent)}
 .room .sw{width:14px;height:14px;border-radius:3px}
 .room input,.room select{width:100%;min-width:0}
-#inner{display:grid;gap:4px;background:var(--border);padding:4px;border-radius:6px;aspect-ratio:1.2;max-width:420px;margin-bottom:12px}
+#inner{display:grid;gap:4px;background:var(--border);padding:4px;border-radius:6px;aspect-ratio:1.2;max-width:420px;max-height:520px;margin-bottom:12px}
 #inner .icell{background:var(--bg);border-radius:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center;min-height:44px;padding:4px}
 #inner .icell.over{outline:2px dashed var(--accent);outline-offset:-2px}
 #inner .icell.center{background:color-mix(in srgb,var(--accent) 8%,var(--bg))}
@@ -90,6 +90,7 @@ body.dragging *{cursor:inherit!important}
   <section>
     <h2>Room <span id="roomTitle"></span></h2>
     <div class="row">
+      <label><input type="checkbox" id="igridAuto"> grid follows the map</label>
       <label>inner grid columns <input type="number" id="icols" min="1" max="12"></label>
       <label>rows <input type="number" id="irows" min="1" max="12"></label>
     </div>
@@ -122,9 +123,25 @@ async function load(){
 // fields the UI touches so a freshly saved or seeded layout is editable.
 function normalize(L){
   L=L||{};L.rooms=L.rooms||[];L.columns=L.columns||1;L.rows=L.rows||1;
-  L.rooms.forEach(rm=>{rm.entities=rm.entities||{};rm.hidden=rm.hidden||[];rm.grid=rm.grid||{rows:3,columns:3};rm.cells=rm.cells||[];rm.name=rm.name||"";});
+  L.rooms.forEach(rm=>{rm.entities=rm.entities||{};rm.hidden=rm.hidden||[];rm.cells=rm.cells||[];rm.name=rm.name||"";
+    if(!rm.grid||(!rm.grid.rows&&!rm.grid.columns))rm.grid={auto:true};syncGrid(rm);});
   return L;
 }
+// An automatic inner grid mirrors the room's footprint on the map (a 2x4
+// room → 2x4 grid). Editing the inner grid by hand pins it (auto=false).
+function syncGrid(rm){
+  if(!rm.grid.auto||!rm.cells.length)return;
+  const [r0,c0,r1,c1]=bounds(rm.cells);const rows=r1-r0+1,cols=c1-c0+1;
+  if(rm.grid.rows!==rows||rm.grid.columns!==cols){rm.grid.rows=rows;rm.grid.columns=cols;clampInner(rm);}
+}
+// The inner grid box takes the room's real proportions: cell aspect from
+// the map's aspect ratio, times the footprint.
+function innerAspect(rm){
+  const L=state.layout;if(!rm.cells.length)return 1.2;
+  const [r0,c0,r1,c1]=bounds(rm.cells);const a=parseAspect(L.aspect_ratio)||(L.columns/L.rows);
+  const cellAspect=a*L.rows/L.columns;return Math.max(.3,Math.min(4,cellAspect*(c1-c0+1)/(r1-r0+1)));
+}
+function parseAspect(v){if(!v)return 0;const m=String(v).trim().match(/^(\d+(?:\.\d+)?)(?:\s*\/\s*(\d+(?:\.\d+)?))?$/);if(!m)return 0;return m[2]?+m[1]/+m[2]:+m[1];}
 function color(i){return palette[i%palette.length];}
 function room(){return state.layout.rooms[state.sel];}
 function areaOf(rm){return state.areas.find(a=>a.name===rm.area)||{entities:[]};}
@@ -155,6 +172,7 @@ function renderRooms(){
 function owner(r,c){return state.layout.rooms.findIndex(rm=>rm.cells.some(x=>x[0]===r&&x[1]===c));}
 function renderMap(){
   const L=state.layout,map=$("#map");map.innerHTML="";
+  L.rooms.forEach(syncGrid);
   map.style.gridTemplateColumns="repeat("+L.columns+",1fr)";map.style.gridTemplateRows="repeat("+L.rows+",1fr)";
   for(let r=0;r<L.rows;r++)for(let c=0;c<L.columns;c++){
     const cell=document.createElement("div");cell.className="cell";const o=owner(r,c);
@@ -265,7 +283,10 @@ function renderRoom(){
   const rm=room();const inner=$("#inner"),list=$("#list");inner.innerHTML="";list.innerHTML="";
   if(!rm){$("#roomTitle").textContent="";return;}
   $("#roomTitle").textContent="— "+(rm.name||rm.area||rm.key);
-  $("#icols").value=rm.grid.columns;$("#irows").value=rm.grid.rows;
+  syncGrid(rm);
+  $("#icols").value=rm.grid.columns;$("#irows").value=rm.grid.rows;$("#igridAuto").checked=!!rm.grid.auto;
+  $("#icols").disabled=$("#irows").disabled=!!rm.grid.auto;
+  inner.style.aspectRatio=String(innerAspect(rm));
   inner.style.gridTemplateColumns="repeat("+rm.grid.columns+",1fr)";inner.style.gridTemplateRows="repeat("+rm.grid.rows+",1fr)";
   const ents=areaOf(rm).entities;const byId={};ents.forEach(e=>byId[e.place_id]=e);
   const cr=(rm.grid.rows-1)/2,cc=(rm.grid.columns-1)/2;
@@ -297,8 +318,9 @@ $("#cols").addEventListener("change",e=>{state.layout.columns=+e.target.value||1
 $("#rows").addEventListener("change",e=>{state.layout.rows=+e.target.value||1;clampCells();renderAll();});
 $("#aspect").addEventListener("change",e=>{state.layout.aspect_ratio=e.target.value.trim();renderControls();});
 $("#maxw").addEventListener("change",e=>{state.layout.max_width=+e.target.value||0;});
-$("#icols").addEventListener("change",e=>{const rm=room();rm.grid.columns=+e.target.value||1;clampInner(rm);renderRoom();});
-$("#irows").addEventListener("change",e=>{const rm=room();rm.grid.rows=+e.target.value||1;clampInner(rm);renderRoom();});
+$("#icols").addEventListener("change",e=>{const rm=room();rm.grid.auto=false;rm.grid.columns=+e.target.value||1;clampInner(rm);renderRoom();});
+$("#irows").addEventListener("change",e=>{const rm=room();rm.grid.auto=false;rm.grid.rows=+e.target.value||1;clampInner(rm);renderRoom();});
+$("#igridAuto").addEventListener("change",e=>{const rm=room();rm.grid.auto=e.target.checked;renderRoom();});
 $("#showAll").addEventListener("change",renderRoom);
 function clampCells(){const L=state.layout;L.rooms.forEach(rm=>{rm.cells=rm.cells.filter(([r,c])=>r<L.rows&&c<L.columns);});}
 function clampInner(rm){Object.entries(rm.entities).forEach(([id,[r,c]])=>{if(r>=rm.grid.rows||c>=rm.grid.columns)delete rm.entities[id];});}

@@ -88,7 +88,7 @@ func TestLayout_PutValidatesAndSaves(t *testing.T) {
 	good := `{"columns":2,"rows":1,"rooms":[{"key":"a","area":"Bedroom","cells":[[0,0]],"entities":{"light.a":[0,0]}}]}`
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest("PUT", "/edit/layout.json", strings.NewReader(good)))
-	if rec.Code != 200 || st.saved == nil || st.saved.Rooms[0].Grid.Rows != 3 {
+	if rec.Code != 200 || st.saved == nil || st.saved.Rooms[0].Grid != (layout.Grid{Rows: 1, Columns: 1, Auto: true}) {
 		t.Errorf("valid layout: %d %s saved=%+v", rec.Code, rec.Body.String(), st.saved)
 	}
 	rec = httptest.NewRecorder()

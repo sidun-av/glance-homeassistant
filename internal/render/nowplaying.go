@@ -65,8 +65,8 @@ const nowPlayingCSS = `
 	/* Progress: the bar spans the text+controls columns under them. */
 	.ha-np-prog{grid-column:2/4;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--color-text-subdue);font-variant-numeric:tabular-nums}
 	.ha-np-row[data-duration="0"] .ha-np-prog{display:none}
-	.ha-np-bar{flex:1;height:3px;border-radius:2px;background:color-mix(in srgb,var(--color-text-base) 14%,transparent);overflow:hidden}
-	.ha-np-fill{height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .5s linear}
+	.ha-np-bar{flex:1;display:block;height:4px;border-radius:2px;background:color-mix(in srgb,var(--color-text-base) 16%,transparent);overflow:hidden}
+	.ha-np-fill{display:block;height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .5s linear}
 `
 
 // mdi:skip-previous, mdi:play, mdi:pause, mdi:skip-next

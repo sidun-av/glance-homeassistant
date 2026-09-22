@@ -13,7 +13,7 @@ func sample() *Layout {
 	return &Layout{
 		Columns: 4, Rows: 4, AspectRatio: "1.15", MaxWidth: 420,
 		Rooms: []Room{
-			{Key: "bedroom", Area: "Bedroom", Cells: []Cell{{0, 0}, {0, 1}, {1, 0}, {1, 1}}, Grid: Grid{3, 3},
+			{Key: "bedroom", Area: "Bedroom", Cells: []Cell{{0, 0}, {0, 1}, {1, 0}, {1, 1}}, Grid: Grid{Rows: 3, Columns: 3},
 				Entities: map[string]Cell{"light.bed": {0, 1}}, Hidden: []string{"switch.x"}},
 			{Key: "kitchen", Area: "Kitchen", Cells: []Cell{{0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 2}, {2, 3}, {3, 2}, {3, 3}}},
 			{Key: "bath", Area: "Bathroom", Cells: []Cell{{2, 0}, {3, 0}}},
@@ -27,8 +27,11 @@ func TestValidate_OK_AndDefaults(t *testing.T) {
 	if err := l.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if l.Version != 1 || l.Rooms[1].Grid != (Grid{3, 3}) {
-		t.Errorf("defaults not applied: version=%d grid=%v", l.Version, l.Rooms[1].Grid)
+	if l.Version != 1 || l.Rooms[1].Grid != (Grid{Rows: 4, Columns: 2, Auto: true}) {
+		t.Errorf("defaults not applied: version=%d grid=%+v (kitchen is 2 wide x 4 tall on the map)", l.Version, l.Rooms[1].Grid)
+	}
+	if l.Rooms[0].Grid != (Grid{Rows: 3, Columns: 3}) {
+		t.Errorf("explicit grid must be kept: %+v", l.Rooms[0].Grid)
 	}
 }
 
@@ -97,7 +100,7 @@ func TestFromFloorplan_RoundTrip(t *testing.T) {
 	if err := l.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if l.Columns != 3 || l.Rows != 2 || len(l.Rooms) != 2 || len(l.Rooms[0].Cells) != 2 || l.Rooms[0].Key != "a" {
+	if l.Columns != 3 || l.Rows != 2 || len(l.Rooms) != 2 || len(l.Rooms[0].Cells) != 2 || l.Rooms[0].Key != "a" || l.Rooms[0].Grid != (Grid{Rows: 1, Columns: 2, Auto: true}) {
 		t.Errorf("seed wrong: %+v", l)
 	}
 	back, err := l.ToFloorplan()

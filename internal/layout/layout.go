@@ -19,8 +19,9 @@ import (
 type Cell [2]int // [row, col]
 
 type Grid struct {
-	Rows    int `json:"rows"`
-	Columns int `json:"columns"`
+	Rows    int  `json:"rows"`
+	Columns int  `json:"columns"`
+	Auto    bool `json:"auto,omitempty"` // follow the room's footprint on the map (rows×cols of its cells)
 }
 
 type Room struct {
@@ -103,11 +104,17 @@ func (l *Layout) Validate() error {
 		if (maxR-minR+1)*(maxC-minC+1) != len(r.Cells) {
 			return fmt.Errorf("room %q: must be one solid rectangle", label)
 		}
+		if r.Grid.Auto || (r.Grid.Rows < 1 && r.Grid.Columns < 1) {
+			// An automatic grid mirrors the room's footprint, so a 2x4 room
+			// on the map gets a 2x4 grid inside — and keeps following the
+			// map until the user sets the grid by hand.
+			r.Grid = Grid{Rows: maxR - minR + 1, Columns: maxC - minC + 1, Auto: true}
+		}
 		if r.Grid.Rows < 1 {
-			r.Grid.Rows = 3
+			r.Grid.Rows = 1
 		}
 		if r.Grid.Columns < 1 {
-			r.Grid.Columns = 3
+			r.Grid.Columns = 1
 		}
 		if r.Grid.Rows > 12 || r.Grid.Columns > 12 {
 			return fmt.Errorf("room %q: inner grid is limited to 12x12", label)
@@ -177,7 +184,7 @@ func FromFloorplan(fp *render.Floorplan) *Layout {
 	l := &Layout{Version: 1, AspectRatio: fp.AspectRatio, MaxWidth: fp.MaxWidth, Columns: fp.Columns, Rows: fp.Rows}
 	cells := fp.CellsByKey()
 	for _, key := range fp.Keys {
-		room := Room{Key: key, Area: fp.Areas[key], Grid: Grid{Rows: 3, Columns: 3}}
+		room := Room{Key: key, Area: fp.Areas[key], Grid: Grid{Auto: true}}
 		for _, c := range cells[key] {
 			room.Cells = append(room.Cells, Cell{c[0], c[1]})
 		}
