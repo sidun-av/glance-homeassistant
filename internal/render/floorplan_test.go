@@ -232,8 +232,8 @@ func TestRenderPlacedRoom(t *testing.T) {
 	for _, want := range []string{
 		`<span class="ha-fp-name">Спальня</span>`,
 		`class="ha-fp-icons ha-fp-placed" style="--reach:0.70;grid-template-rows:repeat(3,1fr);grid-template-columns:repeat(3,1fr)"`,
-		`style="grid-area:1/1;place-self:start start;--dir:-45deg;--len:calc(max(33.33cqw,33.33cqh) + 0.41 * min(33.33cqw,33.33cqh))" class="ha-light" data-entity-id="light.a"`,
-		`style="grid-area:1/2;place-self:start center;--dir:0deg;--len:calc(max(0.00cqw,33.33cqh) + 0.41 * min(0.00cqw,33.33cqh))" class="ha-light" data-entity-id="light.b"`, // unplaced → first free wall cell (top middle)
+		`style="grid-area:1/1;place-self:start start;--ox:calc(50cqw - 22px);--oy:calc(50cqh - 42px);` + beamFromOffset + `" class="ha-light" data-entity-id="light.a"`,
+		`style="grid-area:1/2;place-self:start center;--ox:calc(0.0000 * (100cqw - 8px) + 0px);--oy:calc(50cqh - 42px);` + beamFromOffset + `" class="ha-light" data-entity-id="light.b"`, // unplaced → first free wall cell (top middle)
 		`style="grid-area:2/2;place-self:center center;--dir:0deg;--len:0px" data-center="true" class="ha-badge" data-sensor-name="Door"`,
 	} {
 		if !strings.Contains(html, want) {
@@ -245,12 +245,29 @@ func TestRenderPlacedRoom(t *testing.T) {
 	}
 }
 
-func TestPlacedTileStyle_Directions(t *testing.T) {
-	cases := map[[2]int]string{{0, 1}: "--dir:0deg", {2, 1}: "--dir:180deg", {1, 0}: "--dir:-90deg", {1, 2}: "--dir:90deg", {2, 2}: "--dir:135deg"}
-	for cell, want := range cases {
-		if got := placedTileStyle(cell, 3, 3); !strings.Contains(got, want) {
-			t.Errorf("%v: %s (want %s)", cell, got, want)
+func TestPlacedTileStyle_OffsetFromWallHuggingIcon(t *testing.T) {
+	// The beam starts at the icon, which hugs the wall in an edge cell —
+	// not at the cell's centre — so a side lamp in a 2-column room gets the
+	// full half-width, same as a corner lamp's horizontal leg.
+	cases := map[[2]int][]string{
+		{1, 0}: {"place-self:center start", "--ox:calc(50cqw - 22px)", "--oy:calc(0.0000 * (100cqh - 28px) + -10px)"}, // left wall, middle row of 3
+		{0, 1}: {"place-self:start end", "--ox:calc(22px - 50cqw)", "--oy:calc(50cqh - 42px)"},                        // top-right corner
+		{2, 1}: {"place-self:end end", "--ox:calc(22px - 50cqw)", "--oy:calc(22px - 50cqh)"},                          // bottom-right corner
+	}
+	for cell, wants := range cases {
+		got := placedTileStyle(cell, 3, 2)
+		for _, want := range append(wants, beamFromOffset) {
+			if !strings.Contains(got, want) {
+				t.Errorf("%v: %s (want %s)", cell, got, want)
+			}
 		}
+	}
+	// 4 rows: row 1 is an inner cell, a quarter of the icon grid above centre
+	if got := placedTileStyle([2]int{1, 0}, 4, 2); !strings.Contains(got, "--oy:calc(0.1250 * (100cqh - 28px) + -10px)") {
+		t.Errorf("inner row: %s", got)
+	}
+	if got := placedTileStyle([2]int{1, 1}, 3, 3); !strings.Contains(got, "--len:0px") {
+		t.Errorf("centre cell must cast nothing: %s", got)
 	}
 }
 

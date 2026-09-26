@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"html"
-	"math"
 	"sort"
 	"strings"
 )
@@ -157,19 +156,21 @@ const floorplanCSS = `
 	   centre. Only when all eight walls are taken do tiles spill into the
 	   centre cell. */
 	.ha-fp-icons{position:absolute;inset:24px 4px 4px 4px;display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:1fr auto 1fr}
-	/* --len is how far the flow travels: to the room's centre, in container
-	   units, so a beam from the top wall stops at mid-height and one from
-	   a side wall at mid-width, whatever the room's shape. */
+	/* --ox/--oy is the vector from the icon to the room's centre (container
+	   units minus the icon grid's insets); --dir and --len, the flow's
+	   angle and length, are derived from it (beamFromOffset), so every beam
+	   reaches the same way toward the centre whatever the room's shape. */
 	.ha-fp-icons>span{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;--dir:0deg;--len:50cqh}
 	.ha-fp-icons>span>svg{position:relative;z-index:1;width:28px;height:28px}
-	.ha-fp-icons>[data-slot="t"]{grid-area:1/2;place-self:start center;--dir:0deg;--len:50cqh}
-	.ha-fp-icons>[data-slot="b"]{grid-area:3/2;place-self:end center;--dir:180deg;--len:50cqh}
-	.ha-fp-icons>[data-slot="l"]{grid-area:2/1;place-self:center start;--dir:-90deg;--len:50cqw}
-	.ha-fp-icons>[data-slot="r"]{grid-area:2/3;place-self:center end;--dir:90deg;--len:50cqw}
-	.ha-fp-icons>[data-slot="tl"]{grid-area:1/1;place-self:start start;--dir:-45deg;--len:70cqmin}
-	.ha-fp-icons>[data-slot="tr"]{grid-area:1/3;place-self:start end;--dir:45deg;--len:70cqmin}
-	.ha-fp-icons>[data-slot="bl"]{grid-area:3/1;place-self:end start;--dir:-135deg;--len:70cqmin}
-	.ha-fp-icons>[data-slot="br"]{grid-area:3/3;place-self:end end;--dir:135deg;--len:70cqmin}
+	.ha-fp-icons>[data-slot="t"]{grid-area:1/2;place-self:start center;--ox:0px;--oy:calc(50cqh - 42px)}
+	.ha-fp-icons>[data-slot="b"]{grid-area:3/2;place-self:end center;--ox:0px;--oy:calc(22px - 50cqh)}
+	.ha-fp-icons>[data-slot="l"]{grid-area:2/1;place-self:center start;--ox:calc(50cqw - 22px);--oy:0px}
+	.ha-fp-icons>[data-slot="r"]{grid-area:2/3;place-self:center end;--ox:calc(22px - 50cqw);--oy:0px}
+	.ha-fp-icons>[data-slot="tl"]{grid-area:1/1;place-self:start start;--ox:calc(50cqw - 22px);--oy:calc(50cqh - 42px)}
+	.ha-fp-icons>[data-slot="tr"]{grid-area:1/3;place-self:start end;--ox:calc(22px - 50cqw);--oy:calc(50cqh - 42px)}
+	.ha-fp-icons>[data-slot="bl"]{grid-area:3/1;place-self:end start;--ox:calc(50cqw - 22px);--oy:calc(22px - 50cqh)}
+	.ha-fp-icons>[data-slot="br"]{grid-area:3/3;place-self:end end;--ox:calc(22px - 50cqw);--oy:calc(22px - 50cqh)}
+	.ha-fp-icons>[data-slot]:not([data-slot="c"]){` + beamFromOffset + `}
 	.ha-fp-icons>[data-slot="c"]{grid-area:2/2;place-self:center}
 	/* A source in the room's centre lights (or blows) all around: its
 	   ::before becomes a soft disc sized to the room, its ::after an
@@ -446,39 +447,48 @@ func autoCells(rows, cols int, taken map[[2]int]bool) [][2]int {
 }
 
 // placedTileStyle positions a tile at cell [row,col] of a rows×cols inner
-// grid and aims its beam at the grid centre. --dir: the beam is drawn
-// pointing "down", so rotate by atan2(-dx, dy) where (dx,dy) is the vector
-// to the centre in cell units. --len: distance to the centre in container
-// units, approximated without sqrt (max + 0.41·min) — CSS calc has no
-// hypot. A tile in the exact centre casts nothing (--len:0).
+// grid and aims its beam at the room's centre.
+//
+// The beam starts where the icon actually is, not at the cell's centre: a
+// tile in an edge cell hugs the wall, so in a two-column room a "left"
+// lamp sits by the wall, twice as far from the centre as its cell centre.
+// Measuring from the cell centre made such beams half as long as a corner
+// lamp's and aimed them slightly off. --ox/--oy is the vector from the
+// icon to the room centre in the room's container units (see iconAxis);
+// CSS atan2()/hypot() turn it into the beam's angle and length, since the
+// two axes mix cqw and cqh and can't be combined in Go. The beam is drawn
+// pointing "down", so the angle is atan2(-ox, oy). A tile in the exact
+// centre cell casts nothing (--len:0).
 func placedTileStyle(cell [2]int, rows, cols int) string {
-	dy := (float64(rows)-1)/2 - float64(cell[0])
-	dx := (float64(cols)-1)/2 - float64(cell[1])
-	just := "center"
+	just, ox := iconAxis(cell[1], cols, "cqw", 4, 4)
+	align, oy := iconAxis(cell[0], rows, "cqh", 24, 4)
+	pos := fmt.Sprintf("grid-area:%d/%d;place-self:%s %s", cell[0]+1, cell[1]+1, align, just)
+	if isCentre(cell, rows, cols) {
+		return pos + ";--dir:0deg;--len:0px"
+	}
+	return pos + fmt.Sprintf(";--ox:%s;--oy:%s;%s", ox, oy, beamFromOffset)
+}
+
+// beamFromOffset derives a tile's beam angle and length from its --ox/--oy.
+const beamFromOffset = "--dir:atan2(calc(-1 * var(--ox)),var(--oy));--len:hypot(var(--ox),var(--oy))"
+
+// iconAxis gives, for one axis, how the tile is aligned in its cell and
+// the signed distance from the icon's centre to the room's centre as a CSS
+// length. The icon box is 36px and the icon grid is inset from the room
+// by lo/hi px on this axis (.ha-fp-icons: 24px top for the name strip,
+// 4px elsewhere). Edge cells pin the icon to the wall; other cells centre
+// it in the cell.
+func iconAxis(i, n int, unit string, lo, hi float64) (align, offset string) {
+	const half = 18.0 // half the 36px icon box
 	switch {
-	case cell[1] == 0 && cols > 1:
-		just = "start"
-	case cell[1] == cols-1 && cols > 1:
-		just = "end"
+	case i == 0 && n > 1:
+		return "start", fmt.Sprintf("calc(50%s - %gpx)", unit, lo+half)
+	case i == n-1 && n > 1:
+		return "end", fmt.Sprintf("calc(%gpx - 50%s)", hi+half, unit)
 	}
-	align := "center"
-	switch {
-	case cell[0] == 0 && rows > 1:
-		align = "start"
-	case cell[0] == rows-1 && rows > 1:
-		align = "end"
-	}
-	dir := math.Round(math.Atan2(-dx, dy) * 180 / math.Pi)
-	if dir == -180 || dir == 0 { // normalise -0 / -180 for a stable attribute
-		dir = math.Abs(dir)
-	}
-	ax := math.Abs(dx) * 100 / float64(cols)
-	ay := math.Abs(dy) * 100 / float64(rows)
-	lenExpr := "0px"
-	if ax > 0 || ay > 0 {
-		lenExpr = fmt.Sprintf("calc(max(%.2fcqw,%.2fcqh) + 0.41 * min(%.2fcqw,%.2fcqh))", ax, ay, ax, ay)
-	}
-	return fmt.Sprintf("grid-area:%d/%d;place-self:%s %s;--dir:%.0fdeg;--len:%s", cell[0]+1, cell[1]+1, align, just, dir, lenExpr)
+	// centre of cell i inside the inset icon grid, relative to the room centre
+	frac := (float64(i) + 0.5) / float64(n)
+	return "center", fmt.Sprintf("calc(%.4f * (100%s - %gpx) + %gpx)", 0.5-frac, unit, lo+hi, (hi-lo)/2)
 }
 
 func withoutHidden(r RoomCardView, hidden map[string]bool) RoomCardView {
