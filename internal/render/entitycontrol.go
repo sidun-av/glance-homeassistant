@@ -98,14 +98,15 @@ const entityControlScript = `;(function(img){
 	// wall: the tip of each visible cone edge, at the far ends of the sweep,
 	// must stay inside the room. Geometry mirrors floorplanCSS: the stream
 	// starts at the icon, points at the room centre, is len·reach·spd long,
-	// and its visible body is about ±0.36·len wide (masked 0.9·len cone).
+	// and its visible body is about ±0.36 of its length wide (the cone scales
+	// as a whole, so its opening angle doesn't depend on the speed).
 	function fitSweep(t,want){
 		var room=t.closest('.ha-fp-room');if(!room||t.dataset.center==='true')return want;
 		var R=room.getBoundingClientRect(),I=t.getBoundingClientRect();if(!R.width||!I.width)return want;
 		var px=I.left+I.width/2,py=I.top+I.height/2,vx=R.left+R.width/2-px,vy=R.top+R.height/2-py;
 		var len=Math.hypot(vx,vy);if(!len)return want;
 		var cs=getComputedStyle(t),reach=parseFloat(cs.getPropertyValue('--reach'))||.92,spd=parseFloat(t.style.getPropertyValue('--spd'))||1;
-		var L=len*reach*spd,half=Math.atan(0.36/(reach*spd)),dir=Math.atan2(-vx,vy),m=4;
+		var L=len*reach*spd,half=Math.atan(0.36/reach),dir=Math.atan2(-vx,vy),m=4;
 		function inside(a){var x=px-Math.sin(a)*L,y=py+Math.cos(a)*L;return x>=R.left+m&&x<=R.right-m&&y>=R.top+m&&y<=R.bottom-m;}
 		for(var s=want;s>0;s-=1){
 			var r=s*Math.PI/180;
