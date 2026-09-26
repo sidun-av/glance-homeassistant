@@ -230,6 +230,32 @@ const floorplanCSS = `
 	.ha-fp-icons .ha-device[data-on="true"][data-effect="heat"] svg path{fill:#ff9646}
 	.ha-fp-icons .ha-device[data-on="true"][data-effect="fan"] svg{animation:ha-fp-spin 2.4s linear infinite}
 	@keyframes ha-fp-spin{to{transform:rotate(360deg)}}
+	/* A fan's air shows how it blows (vars set by entityControlScript's
+	   fanVisuals from the tile's live data): --spd scales the stream's
+	   length with the speed (a gentle 10% still reaches a third of the way),
+	   --spdt speeds up the waves and the blades; natural-wind ("breeze")
+	   modes gust — the stream swells and fades irregularly; oscillation
+	   sweeps the stream side to side by --sweep around its direction.
+	   Centre fans keep their 360° ripple. */
+	.ha-fp-icons>.ha-device[data-effect="fan"]:not([data-center="true"])::before,.ha-fp-icons>.ha-device[data-effect="fan"]:not([data-center="true"])::after{
+	  height:calc(var(--len) * var(--reach,.92) * var(--spd,1))}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"]:not([data-center="true"])::after{animation:ha-fp-wave calc(2.4s - 1.6s * var(--spdt,.5)) linear infinite}
+	.ha-fp-icons .ha-device[data-on="true"][data-effect="fan"] svg{animation-duration:calc(3.2s - 2.6s * var(--spdt,.4))}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-breeze="true"]:not([data-center="true"])::before{animation:ha-fp-gust 4.6s ease-in-out infinite}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-breeze="true"]:not([data-center="true"])::after{animation:ha-fp-wave calc(2.4s - 1.6s * var(--spdt,.5)) linear infinite,ha-fp-gust 4.6s ease-in-out infinite}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-osc="true"]:not([data-center="true"])::before{animation:ha-fp-sweep 6s ease-in-out infinite}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-osc="true"]:not([data-center="true"])::after{animation:ha-fp-wave calc(2.4s - 1.6s * var(--spdt,.5)) linear infinite,ha-fp-sweep 6s ease-in-out infinite}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-osc="true"][data-breeze="true"]:not([data-center="true"])::before{animation:ha-fp-sweep 6s ease-in-out infinite,ha-fp-gust 4.6s ease-in-out infinite}
+	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-osc="true"][data-breeze="true"]:not([data-center="true"])::after{animation:ha-fp-wave calc(2.4s - 1.6s * var(--spdt,.5)) linear infinite,ha-fp-sweep 6s ease-in-out infinite,ha-fp-gust 4.6s ease-in-out infinite}
+	@keyframes ha-fp-sweep{
+	  0%,100%{transform:translateX(-50%) rotate(calc(var(--dir) - var(--sweep,30deg))) scaleY(1)}
+	  50%{transform:translateX(-50%) rotate(calc(var(--dir) + var(--sweep,30deg))) scaleY(1)}}
+	@keyframes ha-fp-gust{
+	  0%,100%{height:calc(var(--len) * var(--reach,.92) * var(--spd,1) * .45);opacity:.45}
+	  22%{height:calc(var(--len) * var(--reach,.92) * var(--spd,1));opacity:1}
+	  38%{height:calc(var(--len) * var(--reach,.92) * var(--spd,1) * .7);opacity:.75}
+	  55%{height:calc(var(--len) * var(--reach,.92) * var(--spd,1) * .95);opacity:.95}
+	  78%{height:calc(var(--len) * var(--reach,.92) * var(--spd,1) * .3);opacity:.35}}
 	.ha-fp-icons .ha-badge{gap:0;font-size:0}
 	.ha-fp-icons .ha-badge .ha-contact-label{display:none}
 `

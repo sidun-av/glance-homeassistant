@@ -36,6 +36,12 @@ type app struct {
 	seed   *layout.Layout
 	layout *layout.Layout
 	fp     *render.Floorplan
+
+	// controls: every entity the map lets a viewer act on (tiles and their
+	// devices' extra controls), refreshed on each model build; /entity
+	// checks select/number/switch requests against it.
+	ctrlMu   sync.RWMutex
+	controls map[string]bool
 }
 
 func newApp(cfg *Config) *app {
@@ -358,9 +364,55 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 			PercentageStep: d.PercentageStep,
 			HasOscillate:   d.HasOscillate,
 			Oscillating:    d.Oscillating,
+			PresetModes:    d.PresetModes,
+			PresetMode:     d.PresetMode,
+			Extras:         extraViews(d.Extras),
 		})
 	}
 	return view
+}
+
+func (a *app) recordControls(cards []hass.RoomCard) {
+	ids := map[string]bool{}
+	for _, c := range cards {
+		for _, l := range c.Lights {
+			ids[l.EntityID] = true
+		}
+		for _, d := range c.Devices {
+			ids[d.EntityID] = true
+			for _, e := range d.Extras {
+				ids[e.EntityID] = true
+			}
+		}
+	}
+	a.ctrlMu.Lock()
+	a.controls = ids
+	a.ctrlMu.Unlock()
+}
+
+// isControl reports whether the map offers id as a control, rebuilding the
+// model once if it isn't known yet (a freshly started process).
+func (a *app) isControl(ctx context.Context, id string) bool {
+	a.ctrlMu.RLock()
+	ok, built := a.controls[id], a.controls != nil
+	a.ctrlMu.RUnlock()
+	if ok || built {
+		return ok
+	}
+	if _, err := a.buildModel(ctx); err != nil {
+		return false
+	}
+	a.ctrlMu.RLock()
+	defer a.ctrlMu.RUnlock()
+	return a.controls[id]
+}
+
+func extraViews(extras []hass.Extra) []render.ExtraView {
+	var out []render.ExtraView
+	for _, e := range extras {
+		out = append(out, render.ExtraView(e))
+	}
+	return out
 }
 
 func (a *app) buildModel(ctx context.Context) ([]hass.RoomCard, error) {
@@ -385,6 +437,7 @@ func (a *app) buildModelWithMedia(ctx context.Context) ([]hass.RoomCard, []rende
 		DeviceDomains:        a.cfg.Devices.Domains,
 		DeviceExclude:        a.cfg.Devices.Exclude,
 	})
+	a.recordControls(cards)
 	players := hass.BuildMediaPlayers(rooms, states)
 	// Accents by entity_id order so a player keeps its colour across
 	// refreshes regardless of which one happens to be playing.
@@ -552,7 +605,9 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 var entityDomainActions = map[string]map[string]bool{
 	"light":        {"toggle": true, "set_brightness": true, "set_color_temp": true, "set_color": true},
 	"switch":       {"toggle": true},
-	"fan":          {"toggle": true, "set_percentage": true, "oscillate": true},
+	"fan":          {"toggle": true, "set_percentage": true, "oscillate": true, "set_preset_mode": true},
+	"select":       {"select_option": true},
+	"number":       {"set_value": true},
 	"cover":        {"toggle": true},
 	"lock":         {"toggle": true},
 	"humidifier":   {"toggle": true},
@@ -592,6 +647,9 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 		Percentage  *float64 `json:"percentage"`        // set_percentage, 0..100
 		Oscillating *bool    `json:"oscillating"`       // oscillate
 		HvacMode    string   `json:"hvac_mode"`         // set_hvac_mode
+		PresetMode  string   `json:"preset_mode"`       // set_preset_mode
+		Option      string   `json:"option"`            // select_option
+		Value       *float64 `json:"value"`             // set_value
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -603,6 +661,12 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if !entityDomainActions[domain][req.Action] {
 		http.Error(w, "unsupported entity or action", http.StatusBadRequest)
+		return
+	}
+	// select/number/switch are reachable only when the map shows them (a
+	// tile, or one of a tile's device extras), not as any entity in HA
+	if (domain == "select" || domain == "number" || domain == "switch") && !a.isControl(r.Context(), req.EntityID) {
+		http.Error(w, "not a control of a device on the map", http.StatusBadRequest)
 		return
 	}
 
@@ -667,6 +731,24 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data["hvac_mode"] = req.HvacMode
+	case "set_preset_mode":
+		if req.PresetMode == "" || len(req.PresetMode) > 64 {
+			http.Error(w, "preset_mode is required", http.StatusBadRequest)
+			return
+		}
+		data["preset_mode"] = req.PresetMode
+	case "select_option":
+		if req.Option == "" || len(req.Option) > 128 {
+			http.Error(w, "option is required", http.StatusBadRequest)
+			return
+		}
+		data["option"] = req.Option
+	case "set_value":
+		if req.Value == nil {
+			http.Error(w, "value is required", http.StatusBadRequest)
+			return
+		}
+		data["value"] = *req.Value
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)

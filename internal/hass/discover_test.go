@@ -1,6 +1,9 @@
 package hass
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func defaultClassificationConfig() ClassificationConfig {
 	return ClassificationConfig{
@@ -311,5 +314,28 @@ func TestBuildModel_FanAndClimateControls(t *testing.T) {
 	}
 	if w := by["water_heater.w"]; !w.HasTargetTemp || w.TargetTemp != 21.5 || len(w.HvacModes) != 0 {
 		t.Errorf("water_heater.w = %+v", w)
+	}
+}
+
+func TestDeviceExtras_SiblingsOfTheSameDevice(t *testing.T) {
+	min0, max480, max100 := 0.0, 480.0, 100.0
+	room := Room{Name: "K", Devices: []DeviceGroup{{Name: "Fan 2", EntityIDs: []string{"fan.f", "select.angle", "number.timer", "number.speed", "switch.lock", "button.x", "switch.gone"}}}}
+	states := map[string]EntityState{
+		"fan.f":        {Domain: "fan", State: "on"},
+		"select.angle": {Domain: "select", State: "140", FriendlyName: "Fan 2 Horizontal Angle", Options: []string{"30", "140"}},
+		"number.timer": {Domain: "number", State: "0", FriendlyName: "Fan 2 Power Off Delay Time", Min: &min0, Max: &max480, Unit: "minutes"},
+		"number.speed": {Domain: "number", State: "42", FriendlyName: "Fan 2 Motor Control", Min: &min0, Max: &max100},
+		"switch.lock":  {Domain: "switch", State: "off", FriendlyName: "Fan 2 Physical Control Locked"},
+		"button.x":     {Domain: "button", State: "unknown"},
+		"switch.gone":  {Domain: "switch", State: "unavailable"},
+	}
+	got := deviceExtras("fan.f", room, states, nil)
+	var names []string
+	for _, e := range got {
+		names = append(names, e.Domain+":"+e.Name)
+	}
+	want := "select:Swing angle,number:Off timer,switch:Child lock"
+	if strings.Join(names, ",") != want {
+		t.Errorf("extras = %v, want %s (fan speed number, buttons and unavailable ones dropped)", names, want)
 	}
 }

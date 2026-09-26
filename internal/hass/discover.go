@@ -3,6 +3,7 @@ package hass
 import (
 	"math"
 	"sort"
+	"strings"
 )
 
 type TemperatureRoom struct {
@@ -70,6 +71,114 @@ type Device struct {
 	PercentageStep float64 // HA's percentage_step (100/speed_count); 1 when unknown
 	HasOscillate   bool
 	Oscillating    bool
+	PresetModes    []string // fan: e.g. "Straight Wind", "Natural Wind"
+	PresetMode     string
+
+	// Extras are the other controllable entities of the same HA device
+	// (see deviceExtras).
+	Extras []Extra
+}
+
+// Extra is one of a device's sibling controls, shown in its popover: a
+// select (options as chips), a number (slider) or a switch.
+type Extra struct {
+	EntityID string   `json:"id"`
+	Domain   string   `json:"domain"`
+	Name     string   `json:"name"`
+	State    string   `json:"state"`
+	Options  []string `json:"options,omitempty"`
+	Min      float64  `json:"min,omitempty"`
+	Max      float64  `json:"max,omitempty"`
+	Step     float64  `json:"step,omitempty"`
+	Unit     string   `json:"unit,omitempty"`
+}
+
+// deviceExtras lists the select/number/switch siblings of entityID's HA
+// device, in a stable order (selects, numbers, switches, each by name).
+// Unavailable ones and anything in exclude are skipped, and so is a fan's
+// 0/1..100 number: that is its speed again, already the popover's slider.
+// Names drop the device's name prefix ("Mi Smart Standing Fan 2 Horizontal
+// Angle" → "Horizontal Angle").
+func deviceExtras(entityID string, room Room, states map[string]EntityState, exclude []string) []Extra {
+	var group *DeviceGroup
+	for i := range room.Devices {
+		if contains(room.Devices[i].EntityIDs, entityID) {
+			group = &room.Devices[i]
+			break
+		}
+	}
+	if group == nil {
+		return nil
+	}
+	isFan := strings.HasPrefix(entityID, "fan.")
+	rank := map[string]int{"select": 0, "number": 1, "switch": 2}
+	var out []Extra
+	for _, id := range group.EntityIDs {
+		st, ok := states[id]
+		if !ok || id == entityID || contains(exclude, id) {
+			continue
+		}
+		if _, ok := rank[st.Domain]; !ok || st.State == "unavailable" || st.State == "unknown" {
+			continue
+		}
+		e := Extra{EntityID: id, Domain: st.Domain, Name: extraLabel(st.FriendlyName, group.Name), State: st.State, Unit: st.Unit}
+		switch st.Domain {
+		case "select":
+			if len(st.Options) == 0 {
+				continue
+			}
+			e.Options = st.Options
+		case "number":
+			if st.Min == nil || st.Max == nil {
+				continue
+			}
+			e.Min, e.Max, e.Step = *st.Min, *st.Max, 1
+			if st.Step != nil && *st.Step > 0 {
+				e.Step = *st.Step
+			}
+			if isFan && e.Max == 100 && e.Min <= 1 {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if rank[out[i].Domain] != rank[out[j].Domain] {
+			return rank[out[i].Domain] < rank[out[j].Domain]
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// extraLabels renames the stock entity names Xiaomi (miot) devices ship
+// with to what the controls actually do. Only exact stock names match, so
+// an entity renamed in HA keeps the user's name.
+var extraLabels = map[string]string{
+	"Alarm":                   "Beep",
+	"Brightness":              "Indicator light",
+	"Physical Control Locked": "Child lock",
+	"Power Off Delay Time":    "Off timer",
+	"Fan Speed Settings":      "Level",
+	"Horizontal Angle":        "Swing angle",
+	"Indicator Light":         "Indicator light",
+}
+
+func extraLabel(name, device string) string {
+	n := trimDeviceName(name, device)
+	if l, ok := extraLabels[n]; ok {
+		return l
+	}
+	return n
+}
+
+func trimDeviceName(name, device string) string {
+	if device != "" && strings.HasPrefix(name, device) {
+		if t := strings.TrimSpace(strings.TrimPrefix(name, device)); t != "" {
+			return t
+		}
+	}
+	return name
 }
 
 type RoomCard struct {
@@ -289,7 +398,9 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					}
 					d.HasOscillate = state.SupportedFeatures&2 != 0 || state.Oscillating != nil
 					d.Oscillating = state.Oscillating != nil && *state.Oscillating
+					d.PresetModes, d.PresetMode = state.PresetModes, state.PresetMode
 				}
+				d.Extras = deviceExtras(entityID, room, states, cfg.DeviceExclude)
 				b.devices = append(b.devices, d)
 			}
 		}

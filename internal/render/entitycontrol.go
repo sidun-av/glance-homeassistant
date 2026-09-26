@@ -16,7 +16,8 @@ const entityControlCSS = `
 	.ha-pop{position:fixed;z-index:1000;width:252px;padding:14px 15px;
 	  border-radius:var(--border-radius,5px);background:var(--color-popover-background,var(--color-widget-background));
 	  border:1px solid var(--color-popover-border,var(--color-widget-content-border));box-shadow:0 10px 30px rgba(0,0,0,.4);
-	  display:flex;flex-direction:column;gap:13px;font-size:12px;color:var(--color-text-base);animation:ha-pop-in .14s ease-out}
+	  display:flex;flex-direction:column;gap:13px;font-size:12px;color:var(--color-text-base);animation:ha-pop-in .14s ease-out;
+	  max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain}
 	@keyframes ha-pop-in{from{opacity:0;transform:translateY(4px)}}
 	.ha-pop-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 	.ha-pop-title{font-size:13px;font-weight:600;color:var(--color-text-highlight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -52,6 +53,8 @@ const entityControlCSS = `
 	.ha-pop-swatches{display:flex;flex-wrap:wrap;gap:6px}
 	.ha-pop-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
 	.ha-pop-swatch[data-on="true"]{border-color:var(--color-text-highlight)}
+	.ha-pop-sep{height:1px;background:var(--color-widget-content-border);margin:0 -15px;flex:none}
+	.ha-pop-sel{width:100%;height:28px;border-radius:var(--border-radius,5px);border:1px solid var(--color-widget-content-border);background:transparent;color:var(--color-text-base);font:inherit;font-size:12px;padding:0 6px}
 	.ha-pop-err{color:var(--color-negative);font-size:11px}
 `
 
@@ -70,6 +73,53 @@ const entityControlCSS = `
 // long-press context menu (iOS callout / Android menu) is suppressed.
 const entityControlScript = `;(function(img){
 	var root=img.closest('.ha-widget');if(!root)return;
+
+	// fanVisuals turns a fan tile's live data into the CSS the air stream
+	// reads (see floorplanCSS): --spd/--spdt from the speed, data-breeze
+	// for natural-wind presets, data-osc and --sweep (from the device's
+	// angle select, if any) for oscillation. It re-runs whenever the poller
+	// or the popover changes those attributes, so the map follows at once.
+	function fanVisuals(t){
+		var d=t.dataset;
+		if(d.hasSpeed==='true'){var p=Math.max(0,Math.min(100,+d.percentage||0))/100;t.style.setProperty('--spd',(0.35+0.65*p).toFixed(3));t.style.setProperty('--spdt',p.toFixed(3));}
+		var breeze=/natur|breeze|nature|sleep/i.test(d.presetMode||'');
+		if(d.breeze!==String(breeze))d.breeze=String(breeze);
+		var osc=d.oscillating==='true';
+		if(d.osc!==String(osc))d.osc=String(osc);
+		var angle=0;
+		try{
+			var ex=JSON.parse(d.extras||'[]'),st=JSON.parse(d.extraStates||'{}');
+			ex.forEach(function(e){if(e.domain==='select'&&/angle/i.test(e.name+e.id)){var v=parseFloat(st[e.id]!=null?st[e.id]:e.state);if(v)angle=v;}});
+		}catch(_){}
+		var want=angle?Math.min(45,Math.max(8,angle/4)):30;
+		t.style.setProperty('--sweep',fitSweep(t,want)+'deg');
+	}
+	// fitSweep narrows the oscillation so the stream never swings into a
+	// wall: the tip of each visible cone edge, at the far ends of the sweep,
+	// must stay inside the room. Geometry mirrors floorplanCSS: the stream
+	// starts at the icon, points at the room centre, is len·reach·spd long,
+	// and its visible body is about ±0.36·len wide (masked 0.9·len cone).
+	function fitSweep(t,want){
+		var room=t.closest('.ha-fp-room');if(!room||t.dataset.center==='true')return want;
+		var R=room.getBoundingClientRect(),I=t.getBoundingClientRect();if(!R.width||!I.width)return want;
+		var px=I.left+I.width/2,py=I.top+I.height/2,vx=R.left+R.width/2-px,vy=R.top+R.height/2-py;
+		var len=Math.hypot(vx,vy);if(!len)return want;
+		var cs=getComputedStyle(t),reach=parseFloat(cs.getPropertyValue('--reach'))||.92,spd=parseFloat(t.style.getPropertyValue('--spd'))||1;
+		var L=len*reach*spd,half=Math.atan(0.36/(reach*spd)),dir=Math.atan2(-vx,vy),m=4;
+		function inside(a){var x=px-Math.sin(a)*L,y=py+Math.cos(a)*L;return x>=R.left+m&&x<=R.right-m&&y>=R.top+m&&y<=R.bottom-m;}
+		for(var s=want;s>0;s-=1){
+			var r=s*Math.PI/180;
+			if(inside(dir+r+half)&&inside(dir-r-half)&&inside(dir+r-half)&&inside(dir-r+half))return s;
+		}
+		return 0;
+	}
+	root.querySelectorAll('.ha-device[data-effect="fan"]').forEach(function(t){
+		fanVisuals(t);
+		new MutationObserver(function(){fanVisuals(t);}).observe(t,{attributes:true,attributeFilter:['data-percentage','data-preset-mode','data-oscillating','data-extra-states']});
+		var room=t.closest('.ha-fp-room');
+		if(room&&window.ResizeObserver)new ResizeObserver(function(){fanVisuals(t);}).observe(room);
+	});
+
 	var entityUrl=root.dataset.entityUrl;if(!entityUrl)return;
 
 	var TOGGLE_DOMAINS={light:true,switch:true,fan:true,cover:true,lock:true,humidifier:true,water_heater:true,vacuum:true,climate:true};
@@ -85,7 +135,7 @@ const entityControlScript = `;(function(img){
 	function canPopover(t){
 		var d=t.dataset;
 		if(t.classList.contains('ha-light'))return d.hasBrightness==='true'||d.hasColorTemp==='true'||d.hasColor==='true';
-		return d.hasTargetTemp==='true'||d.hasSpeed==='true'||d.hasOscillate==='true'||!!d.hvacModes;
+		return d.hasTargetTemp==='true'||d.hasSpeed==='true'||d.hasOscillate==='true'||!!d.hvacModes||!!d.presetModes||!!d.extras;
 	}
 	root.querySelectorAll('.ha-light,.ha-device').forEach(function(t){if(eligibleTile(t)===t)t.dataset.fpInteractive='true';});
 
@@ -128,6 +178,43 @@ const entityControlScript = `;(function(img){
 	}
 	function deg(v){return (+v).toFixed(1).replace(/\.0$/,'')+'°';}
 
+	function parse(v,dflt){try{return JSON.parse(v);}catch(_){return dflt;}}
+	// extras: the device's sibling select/number/switch entities; states in
+	// data-extra-states (kept fresh by the poller) win over the rendered ones
+	function extras(tile){
+		var list=parse(tile.dataset.extras||'[]',[]),st=parse(tile.dataset.extraStates||'{}',{});
+		list.forEach(function(e){if(st[e.id]!=null)e.state=st[e.id];});
+		return list;
+	}
+	function setExtraState(tile,id,v){var st=parse(tile.dataset.extraStates||'{}',{});st[id]=String(v);tile.dataset.extraStates=JSON.stringify(st);hold(tile);}
+	function numLabel(v,e){
+		if(e.unit==='minutes'||e.unit==='min'){if(!v)return 'Off';var h=Math.floor(v/60),m=Math.round(v%60);return (h?h+' h ':'')+(m||!h?m+' min':'');}
+		return (Math.round(v*100)/100)+(e.unit?' '+esc(e.unit):'');
+	}
+	function extrasHtml(tile){
+		var list=extras(tile);if(!list.length)return '';
+		var html='<div class="ha-pop-sep"></div>';
+		list.forEach(function(e){
+			if(e.domain==='select'){
+				var deg=/angle/i.test(e.name)&&e.options.every(function(o){return /^\d+$/.test(o);})?'°':'';
+				var short=e.options.length<=6&&e.options.join('').length<=40;
+				// "Level1".."Level4" → chips "1".."4": drop a word prefix all options share
+				var pre=(e.options[0].match(/^[A-Za-z ]+(?=\d)/)||[''])[0];
+				if(!pre||!e.options.every(function(o){return o.indexOf(pre)===0&&/^\d+$/.test(o.slice(pre.length));}))pre='';
+				html+='<div class="ha-pop-row"><span class="ha-pop-label">'+esc(e.name)+'</span>'+(short?
+					'<div class="ha-pop-chips">'+e.options.map(function(o){return '<button type="button" class="ha-pop-chip" data-extra="'+esc(e.id)+'" data-option="'+esc(o)+'" data-on="'+(o===e.state)+'">'+esc(o.slice(pre.length))+deg+'</button>';}).join('')+'</div>':
+					'<select class="ha-pop-sel" data-extra="'+esc(e.id)+'">'+e.options.map(function(o){return '<option'+(o===e.state?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>')+'</div>';
+			}else if(e.domain==='number'){
+				var v=+e.state||0;e.min=e.min||0;e.max=e.max||0;
+				html+='<div class="ha-pop-row"><div class="ha-pop-line"><span class="ha-pop-label">'+esc(e.name)+'</span><span class="ha-pop-val" data-out-extra="'+esc(e.id)+'">'+numLabel(v,e)+'</span></div>'+
+					'<input type="range" class="ha-pop-slider" data-extra="'+esc(e.id)+'" min="'+e.min+'" max="'+e.max+'" step="'+(e.step||1)+'" value="'+v+'" style="--pct:'+pct(v,e.min,e.max)+'%"></div>';
+			}else if(e.domain==='switch'){
+				html+='<div class="ha-pop-line"><span class="ha-pop-label">'+esc(e.name)+'</span><button type="button" class="ha-pop-sw" data-extra="'+esc(e.id)+'" data-on="'+(e.state==='on')+'" aria-label="'+esc(e.name)+'"></button></div>';
+			}
+		});
+		return html;
+	}
+
 	function buildPanel(tile){
 		var d=tile.dataset,isLight=tile.classList.contains('ha-light');
 		var panel=document.createElement('div');
@@ -167,9 +254,15 @@ const entityControlScript = `;(function(img){
 				var st=+d.percentageStep||1,p=+d.percentage||0;
 				html+=row('Speed','<span data-out="percentage">'+(p?Math.round(p)+'%':'Off')+'</span>',slider('percentage',0,100,st,p));
 			}
+			if(d.presetModes){
+				html+='<div class="ha-pop-row"><span class="ha-pop-label">Mode</span><div class="ha-pop-chips">'+parse(d.presetModes,[]).map(function(m){
+					return '<button type="button" class="ha-pop-chip" data-preset="'+esc(m)+'" data-on="'+(m===d.presetMode)+'">'+esc(m)+'</button>';
+				}).join('')+'</div></div>';
+			}
 			if(d.hasOscillate==='true'){
 				html+='<div class="ha-pop-line"><span class="ha-pop-label">Oscillate</span><button type="button" class="ha-pop-sw" data-act="oscillate" data-on="'+(d.oscillating==='true')+'" aria-label="Oscillate"></button></div>';
 			}
+			html+=extrasHtml(tile);
 		}
 		panel.innerHTML=html;
 		return panel;
@@ -208,6 +301,22 @@ const entityControlScript = `;(function(img){
 		panel.addEventListener('click',function(e){
 			var btn=e.target.closest('button');if(!btn)return;
 			var act=btn.dataset.act;
+			if(btn.dataset.preset){
+				var pm=btn.dataset.preset;
+				btn.parentNode.querySelectorAll('.ha-pop-chip').forEach(function(c){c.dataset.on=String(c===btn);});
+				tile.dataset.presetMode=pm;hold(tile);
+				post('set_preset_mode',tile.dataset.entityId,{preset_mode:pm}).catch(function(err){showErr(err.message);});return;
+			}
+			if(btn.dataset.extra&&btn.dataset.option!=null){
+				var opt=btn.dataset.option;
+				btn.parentNode.querySelectorAll('.ha-pop-chip').forEach(function(c){c.dataset.on=String(c===btn);});
+				setExtraState(tile,btn.dataset.extra,opt);
+				post('select_option',btn.dataset.extra,{option:opt}).catch(function(err){showErr(err.message);});return;
+			}
+			if(btn.dataset.extra){
+				var on2=btn.dataset.on!=='true';btn.dataset.on=String(on2);setExtraState(tile,btn.dataset.extra,on2?'on':'off');
+				post('toggle',btn.dataset.extra).catch(function(err){btn.dataset.on=String(!on2);showErr(err.message);});return;
+			}
 			if(act==='power'){toggleTile(tile);return;}
 			if(act==='oscillate'){
 				var on=btn.dataset.on!=='true';btn.dataset.on=String(on);tile.dataset.oscillating=String(on);hold(tile);
@@ -232,7 +341,24 @@ const entityControlScript = `;(function(img){
 				post('set_color',tile.dataset.entityId,{rgb_color:rgb}).catch(function(err){showErr(err.message);});
 			}
 		});
-		panel.querySelectorAll('.ha-pop-slider').forEach(function(input){
+		var extraTimers={};
+		panel.querySelectorAll('[data-extra]').forEach(function(el){
+			if(el.tagName==='SELECT')el.addEventListener('change',function(){
+				setExtraState(tile,el.dataset.extra,el.value);
+				post('select_option',el.dataset.extra,{option:el.value}).catch(function(err){showErr(err.message);});
+			});
+			if(el.tagName!=='INPUT')return;
+			var e=extras(tile).filter(function(x){return x.id===el.dataset.extra;})[0]||{};
+			var sendVal=function(){post('set_value',el.dataset.extra,{value:+el.value}).catch(function(err){showErr(err.message);});};
+			el.addEventListener('input',function(){
+				el.style.setProperty('--pct',pct(+el.value,+el.min,+el.max)+'%');
+				var o=panel.querySelector('[data-out-extra="'+CSS.escape(el.dataset.extra)+'"]');if(o)o.innerHTML=numLabel(+el.value,e);
+				setExtraState(tile,el.dataset.extra,el.value);
+				clearTimeout(extraTimers[el.dataset.extra]);extraTimers[el.dataset.extra]=setTimeout(sendVal,400);
+			});
+			el.addEventListener('change',function(){clearTimeout(extraTimers[el.dataset.extra]);sendVal();});
+		});
+		panel.querySelectorAll('.ha-pop-slider:not([data-extra])').forEach(function(input){
 			input.addEventListener('input',function(){
 				var v=+input.value;
 				input.style.setProperty('--pct',pct(v,+input.min,+input.max)+'%');

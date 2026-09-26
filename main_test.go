@@ -597,6 +597,10 @@ func TestEntityHandler_ServiceCalls(t *testing.T) {
 		{`{"entity_id":"climate.x","action":"set_hvac_mode","hvac_mode":"turbo"}`, 400, "", ""},
 		{`{"entity_id":"light.x","action":"set_percentage","percentage":40}`, 400, "", ""},
 		{`{"entity_id":"media_player.x","action":"toggle"}`, 400, "", ""},
+		{`{"entity_id":"fan.x","action":"set_preset_mode","preset_mode":"Natural Wind"}`, 204, "/api/services/fan/set_preset_mode", "preset_mode"},
+		{`{"entity_id":"select.not_on_map","action":"select_option","option":"a"}`, 400, "", ""},
+		{`{"entity_id":"number.not_on_map","action":"set_value","value":1}`, 400, "", ""},
+		{`{"entity_id":"switch.not_on_map","action":"toggle"}`, 400, "", ""},
 	}
 	for _, c := range cases {
 		got = nil
@@ -607,11 +611,20 @@ func TestEntityHandler_ServiceCalls(t *testing.T) {
 			continue
 		}
 		if c.wantPath == "" {
-			if len(got) != 0 {
-				t.Errorf("%s: HA was called for a rejected request", c.body)
+			for _, g := range got {
+				if strings.HasPrefix(g.path, "/api/services/") {
+					t.Errorf("%s: service %s called for a rejected request", c.body, g.path)
+				}
 			}
 			continue
 		}
+		var svc []call
+		for _, g := range got {
+			if strings.HasPrefix(g.path, "/api/services/") {
+				svc = append(svc, g)
+			}
+		}
+		got = svc
 		if len(got) != 1 || got[0].path != c.wantPath {
 			t.Errorf("%s: HA calls %+v, want one to %s", c.body, got, c.wantPath)
 			continue

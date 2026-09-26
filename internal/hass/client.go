@@ -30,6 +30,15 @@ type Room struct {
 	ID        string
 	Name      string
 	EntityIDs []string
+	// Devices groups the area's entities by the HA device they belong to,
+	// so a device tile can offer its siblings (a fan's oscillation angle,
+	// timer, child lock, ...) as extra controls.
+	Devices []DeviceGroup
+}
+
+type DeviceGroup struct {
+	Name      string   `json:"name"`
+	EntityIDs []string `json:"entities"`
 }
 
 // areasTemplate renders every HA area to a JSON array via the Jinja functions
@@ -38,7 +47,9 @@ type Room struct {
 // how HA's own Areas UI groups things.
 const areasTemplate = `{% set ns = namespace(areas=[]) %}` +
 	`{% for a in areas() %}` +
-	`{% set ns.areas = ns.areas + [{'id': a, 'name': area_name(a), 'entities': area_entities(a)}] %}` +
+	`{% set dv = namespace(list=[]) %}` +
+	`{% for d in area_devices(a) %}{% set dv.list = dv.list + [{'name': device_attr(d, 'name_by_user') or device_attr(d, 'name') or '', 'entities': device_entities(d)}] %}{% endfor %}` +
+	`{% set ns.areas = ns.areas + [{'id': a, 'name': area_name(a), 'entities': area_entities(a), 'devices': dv.list}] %}` +
 	`{% endfor %}` +
 	`{{ ns.areas | tojson }}`
 
@@ -75,9 +86,10 @@ func (c *Client) FetchAreas(ctx context.Context) ([]Room, error) {
 	}
 
 	type rawArea struct {
-		ID       string   `json:"id"`
-		Name     string   `json:"name"`
-		Entities []string `json:"entities"`
+		ID       string        `json:"id"`
+		Name     string        `json:"name"`
+		Entities []string      `json:"entities"`
+		Devices  []DeviceGroup `json:"devices"`
 	}
 	var rawAreas []rawArea
 	if err := json.Unmarshal(bytes.TrimSpace(body), &rawAreas); err != nil {
@@ -86,7 +98,7 @@ func (c *Client) FetchAreas(ctx context.Context) ([]Room, error) {
 
 	rooms := make([]Room, len(rawAreas))
 	for i, a := range rawAreas {
-		rooms[i] = Room{ID: a.ID, Name: a.Name, EntityIDs: a.Entities}
+		rooms[i] = Room{ID: a.ID, Name: a.Name, EntityIDs: a.Entities, Devices: a.Devices}
 	}
 	return rooms, nil
 }
@@ -132,6 +144,20 @@ type EntityState struct {
 	Percentage        *float64
 	PercentageStep    *float64
 	Oscillating       *bool
+	PresetModes       []string // fan
+	PresetMode        string
+
+	// select / number (a device's extra controls)
+	Options []string
+	Min     *float64
+	Max     *float64
+	Step    *float64
+	Unit    string
+}
+
+func withPreset(s EntityState, mode string) EntityState {
+	s.PresetMode = mode
+	return s
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -187,6 +213,14 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			Percentage        *float64 `json:"percentage"`
 			PercentageStep    *float64 `json:"percentage_step"`
 			Oscillating       *bool    `json:"oscillating"`
+			PresetModes       []string `json:"preset_modes"`
+			PresetMode        *string  `json:"preset_mode"`
+
+			Options []string `json:"options"`
+			Min     *float64 `json:"min"`
+			Max     *float64 `json:"max"`
+			Step    *float64 `json:"step"`
+			Unit    string   `json:"unit_of_measurement"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -243,6 +277,16 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			Percentage:        s.Attributes.Percentage,
 			PercentageStep:    s.Attributes.PercentageStep,
 			Oscillating:       s.Attributes.Oscillating,
+			PresetModes:       s.Attributes.PresetModes,
+
+			Options: s.Attributes.Options,
+			Min:     s.Attributes.Min,
+			Max:     s.Attributes.Max,
+			Step:    s.Attributes.Step,
+			Unit:    s.Attributes.Unit,
+		}
+		if s.Attributes.PresetMode != nil {
+			states[s.EntityID] = withPreset(states[s.EntityID], *s.Attributes.PresetMode)
 		}
 		if s.Attributes.VolumeLevel != nil {
 			states[s.EntityID] = withVolume(states[s.EntityID], *s.Attributes.VolumeLevel)
