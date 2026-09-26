@@ -52,13 +52,24 @@ type Device struct {
 	On       bool
 	Effect   string
 
-	// climate only
+	// climate/water_heater: target temperature
 	HasTargetTemp bool
 	CurrentTemp   float64
 	TargetTemp    float64
 	MinTemp       float64
 	MaxTemp       float64
 	TempStep      float64
+	// climate only: the modes HA offers (off/heat/cool/auto/...) and the
+	// current one (the entity's state)
+	HvacModes []string
+	HvacMode  string
+
+	// fan only
+	HasSpeed       bool
+	Percentage     int     // 0..100
+	PercentageStep float64 // HA's percentage_step (100/speed_count); 1 when unknown
+	HasOscillate   bool
+	Oscillating    bool
 }
 
 type RoomCard struct {
@@ -247,7 +258,7 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					On:       on,
 					Effect:   effect,
 				}
-				if state.Domain == "climate" && state.TargetTemperature != nil {
+				if (state.Domain == "climate" || state.Domain == "water_heater") && state.TargetTemperature != nil {
 					d.HasTargetTemp = true
 					d.TargetTemp = *state.TargetTemperature
 					if state.CurrentTemperature != nil {
@@ -263,6 +274,21 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					if state.TempStep != nil {
 						d.TempStep = *state.TempStep
 					}
+				}
+				if state.Domain == "climate" {
+					d.HvacModes, d.HvacMode = state.HvacModes, state.State
+				}
+				if state.Domain == "fan" {
+					d.HasSpeed = state.SupportedFeatures&1 != 0 || state.Percentage != nil
+					if state.Percentage != nil {
+						d.Percentage = *state.Percentage
+					}
+					d.PercentageStep = 1
+					if state.PercentageStep != nil && *state.PercentageStep > 0 {
+						d.PercentageStep = *state.PercentageStep
+					}
+					d.HasOscillate = state.SupportedFeatures&2 != 0 || state.Oscillating != nil
+					d.Oscillating = state.Oscillating != nil && *state.Oscillating
 				}
 				b.devices = append(b.devices, d)
 			}

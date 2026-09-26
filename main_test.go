@@ -564,3 +564,60 @@ func TestTemperatureTrend(t *testing.T) {
 		}
 	}
 }
+
+func TestEntityHandler_ServiceCalls(t *testing.T) {
+	type call struct {
+		path string
+		body map[string]any
+	}
+	var got []call
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		json.NewDecoder(r.Body).Decode(&b)
+		got = append(got, call{r.URL.Path, b})
+		fmt.Fprint(w, `[]`)
+	}))
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	mux := newMux(cfg, newApp(cfg))
+
+	cases := []struct {
+		body     string
+		wantCode int
+		wantPath string
+		wantKey  string
+	}{
+		{`{"entity_id":"fan.x","action":"set_percentage","percentage":40}`, 204, "/api/services/fan/set_percentage", "percentage"},
+		{`{"entity_id":"fan.x","action":"oscillate","oscillating":true}`, 204, "/api/services/fan/oscillate", "oscillating"},
+		{`{"entity_id":"climate.x","action":"set_hvac_mode","hvac_mode":"heat"}`, 204, "/api/services/climate/set_hvac_mode", "hvac_mode"},
+		{`{"entity_id":"water_heater.x","action":"set_temperature","temperature":55}`, 204, "/api/services/water_heater/set_temperature", "temperature"},
+		{`{"entity_id":"light.x","action":"toggle"}`, 204, "/api/services/homeassistant/toggle", "entity_id"},
+		{`{"entity_id":"fan.x","action":"set_percentage","percentage":140}`, 400, "", ""},
+		{`{"entity_id":"fan.x","action":"oscillate"}`, 400, "", ""},
+		{`{"entity_id":"climate.x","action":"set_hvac_mode","hvac_mode":"turbo"}`, 400, "", ""},
+		{`{"entity_id":"light.x","action":"set_percentage","percentage":40}`, 400, "", ""},
+		{`{"entity_id":"media_player.x","action":"toggle"}`, 400, "", ""},
+	}
+	for _, c := range cases {
+		got = nil
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/ha-widget/entity", strings.NewReader(c.body)))
+		if rec.Code != c.wantCode {
+			t.Errorf("%s: status %d, want %d (%s)", c.body, rec.Code, c.wantCode, rec.Body.String())
+			continue
+		}
+		if c.wantPath == "" {
+			if len(got) != 0 {
+				t.Errorf("%s: HA was called for a rejected request", c.body)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].path != c.wantPath {
+			t.Errorf("%s: HA calls %+v, want one to %s", c.body, got, c.wantPath)
+			continue
+		}
+		if _, ok := got[0].body[c.wantKey]; !ok {
+			t.Errorf("%s: service data %v lacks %q", c.body, got[0].body, c.wantKey)
+		}
+	}
+}

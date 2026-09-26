@@ -312,6 +312,7 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 	for _, l := range card.Lights {
 		view.Lights = append(view.Lights, render.LightView{
 			EntityID:        l.EntityID,
+			Name:            l.Name,
 			IconSVG:         render.LightIcon(l.Icon),
 			On:              l.On,
 			HasBrightness:   l.HasBrightness,
@@ -338,18 +339,25 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 	}
 	for _, d := range card.Devices {
 		view.Devices = append(view.Devices, render.DeviceView{
-			EntityID:      d.EntityID,
-			Name:          d.Name,
-			Domain:        d.Domain,
-			IconSVG:       render.DeviceIcon(d.Domain, d.Icon),
-			On:            d.On,
-			Effect:        d.Effect,
-			HasTargetTemp: d.HasTargetTemp,
-			CurrentTemp:   d.CurrentTemp,
-			TargetTemp:    d.TargetTemp,
-			MinTemp:       d.MinTemp,
-			MaxTemp:       d.MaxTemp,
-			TempStep:      d.TempStep,
+			EntityID:       d.EntityID,
+			Name:           d.Name,
+			Domain:         d.Domain,
+			IconSVG:        render.DeviceIcon(d.Domain, d.Icon),
+			On:             d.On,
+			Effect:         d.Effect,
+			HasTargetTemp:  d.HasTargetTemp,
+			CurrentTemp:    d.CurrentTemp,
+			TargetTemp:     d.TargetTemp,
+			MinTemp:        d.MinTemp,
+			MaxTemp:        d.MaxTemp,
+			TempStep:       d.TempStep,
+			HvacModes:      d.HvacModes,
+			HvacMode:       d.HvacMode,
+			HasSpeed:       d.HasSpeed,
+			Percentage:     d.Percentage,
+			PercentageStep: d.PercentageStep,
+			HasOscillate:   d.HasOscillate,
+			Oscillating:    d.Oscillating,
 		})
 	}
 	return view
@@ -544,14 +552,18 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 var entityDomainActions = map[string]map[string]bool{
 	"light":        {"toggle": true, "set_brightness": true, "set_color_temp": true, "set_color": true},
 	"switch":       {"toggle": true},
-	"fan":          {"toggle": true},
+	"fan":          {"toggle": true, "set_percentage": true, "oscillate": true},
 	"cover":        {"toggle": true},
 	"lock":         {"toggle": true},
 	"humidifier":   {"toggle": true},
-	"water_heater": {"toggle": true},
+	"water_heater": {"toggle": true, "set_temperature": true},
 	"vacuum":       {"toggle": true},
-	"climate":      {"toggle": true, "set_temperature": true},
+	"climate":      {"toggle": true, "set_temperature": true, "set_hvac_mode": true},
 }
+
+// hvacModes are Home Assistant's HVACMode values, the only ones
+// set_hvac_mode passes through.
+var hvacModes = map[string]bool{"off": true, "heat": true, "cool": true, "heat_cool": true, "auto": true, "dry": true, "fan_only": true}
 
 // entityHandler proxies a floorplan tile's click or popover action to Home
 // Assistant. Modeled on mediaHandler (same CORS/decode/log shape), but
@@ -577,6 +589,9 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 		ColorTemp   *float64 `json:"color_temp_kelvin"` // set_color_temp
 		RGBColor    []int    `json:"rgb_color"`         // set_color, [r,g,b]
 		Temperature *float64 `json:"temperature"`       // set_temperature
+		Percentage  *float64 `json:"percentage"`        // set_percentage, 0..100
+		Oscillating *bool    `json:"oscillating"`       // oscillate
+		HvacMode    string   `json:"hvac_mode"`         // set_hvac_mode
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -629,7 +644,29 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "temperature is required", http.StatusBadRequest)
 			return
 		}
+		if *req.Temperature < -30 || *req.Temperature > 100 {
+			http.Error(w, "temperature must be -30..100", http.StatusBadRequest)
+			return
+		}
 		data["temperature"] = *req.Temperature
+	case "set_percentage":
+		if req.Percentage == nil || *req.Percentage < 0 || *req.Percentage > 100 {
+			http.Error(w, "percentage must be 0..100", http.StatusBadRequest)
+			return
+		}
+		data["percentage"] = *req.Percentage
+	case "oscillate":
+		if req.Oscillating == nil {
+			http.Error(w, "oscillating is required", http.StatusBadRequest)
+			return
+		}
+		data["oscillating"] = *req.Oscillating
+	case "set_hvac_mode":
+		if !hvacModes[req.HvacMode] {
+			http.Error(w, "unknown hvac_mode", http.StatusBadRequest)
+			return
+		}
+		data["hvac_mode"] = req.HvacMode
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)

@@ -89,7 +89,7 @@ func TestRenderLive_IncludesDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), `"devices":[{"entity_id":"fan.x","on":true,"effect":"fan","current_temp":0,"target_temp":0}]`) {
+	if !strings.Contains(string(out), `"devices":[{"entity_id":"fan.x","on":true,"effect":"fan","current_temp":0,"target_temp":0,"percentage":0}]`) {
 		t.Errorf("payload: %s", out)
 	}
 }

@@ -279,3 +279,37 @@ func TestBuildMediaPlayers(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 }
+
+func TestBuildModel_FanAndClimateControls(t *testing.T) {
+	pct, step, osc := 66, 33.33, true
+	tgt, cur := 21.5, 19.0
+	rooms := []Room{{Name: "R", EntityIDs: []string{"fan.f", "fan.plain", "climate.c", "water_heater.w"}}}
+	states := map[string]EntityState{
+		"fan.f":          {EntityID: "fan.f", Domain: "fan", State: "on", SupportedFeatures: 3, Percentage: &pct, PercentageStep: &step, Oscillating: &osc},
+		"fan.plain":      {EntityID: "fan.plain", Domain: "fan", State: "off"},
+		"climate.c":      {EntityID: "climate.c", Domain: "climate", State: "heat", TargetTemperature: &tgt, CurrentTemperature: &cur, HvacModes: []string{"off", "heat"}},
+		"water_heater.w": {EntityID: "water_heater.w", Domain: "water_heater", State: "eco", TargetTemperature: &tgt},
+	}
+	cfg := defaultClassificationConfig()
+	cfg.DeviceDomains = []string{"fan", "climate", "water_heater"}
+	cards := BuildModel(rooms, states, cfg)
+	if len(cards) != 1 {
+		t.Fatalf("cards = %d", len(cards))
+	}
+	by := map[string]Device{}
+	for _, d := range cards[0].Devices {
+		by[d.EntityID] = d
+	}
+	if f := by["fan.f"]; !f.HasSpeed || f.Percentage != 66 || f.PercentageStep != 33.33 || !f.HasOscillate || !f.Oscillating {
+		t.Errorf("fan.f = %+v", f)
+	}
+	if f := by["fan.plain"]; f.HasSpeed || f.HasOscillate || f.PercentageStep != 1 {
+		t.Errorf("fan.plain = %+v, want no speed/oscillate controls", f)
+	}
+	if c := by["climate.c"]; !c.HasTargetTemp || c.TargetTemp != 21.5 || c.HvacMode != "heat" || len(c.HvacModes) != 2 {
+		t.Errorf("climate.c = %+v", c)
+	}
+	if w := by["water_heater.w"]; !w.HasTargetTemp || w.TargetTemp != 21.5 || len(w.HvacModes) != 0 {
+		t.Errorf("water_heater.w = %+v", w)
+	}
+}

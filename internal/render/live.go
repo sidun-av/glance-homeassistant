@@ -22,6 +22,9 @@ type LiveDevice struct {
 	Effect      string  `json:"effect"`
 	CurrentTemp float64 `json:"current_temp"` // climate only; meaningful when data-has-target-temp is true
 	TargetTemp  float64 `json:"target_temp"`
+	HvacMode    string  `json:"hvac_mode,omitempty"`   // climate only
+	Percentage  int     `json:"percentage"`            // fan only; meaningful when data-has-speed is true
+	Oscillating bool    `json:"oscillating,omitempty"` // fan only
 }
 
 type LiveRoom struct {
@@ -73,7 +76,8 @@ func RenderLive(rooms []RoomCardView, media ...MediaView) ([]byte, error) {
 			Devices:   make([]LiveDevice, len(r.Devices)),
 		}
 		for i, d := range r.Devices {
-			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect, CurrentTemp: d.CurrentTemp, TargetTemp: d.TargetTemp}
+			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect, CurrentTemp: d.CurrentTemp, TargetTemp: d.TargetTemp,
+				HvacMode: d.HvacMode, Percentage: d.Percentage, Oscillating: d.Oscillating}
 		}
 		for i, l := range r.Lights {
 			lv := LiveLight{EntityID: l.EntityID, On: l.On, Brightness: l.Brightness, ColorTemp: l.ColorTempKelvin}

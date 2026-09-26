@@ -124,6 +124,14 @@ type EntityState struct {
 	MinTemp            *float64
 	MaxTemp            *float64
 	TempStep           *float64
+	HvacModes          []string
+
+	// fan only. SupportedFeatures is HA's bitmask (fan: 1 set_speed,
+	// 2 oscillate); the value fields are nil when the fan doesn't report them.
+	SupportedFeatures int
+	Percentage        *int
+	PercentageStep    *float64
+	Oscillating       *bool
 }
 
 func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error) {
@@ -173,6 +181,12 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			MinTemp            *float64 `json:"min_temp"`
 			MaxTemp            *float64 `json:"max_temp"`
 			TargetTempStep     *float64 `json:"target_temp_step"`
+			HvacModes          []string `json:"hvac_modes"`
+
+			SupportedFeatures int      `json:"supported_features"`
+			Percentage        *int     `json:"percentage"`
+			PercentageStep    *float64 `json:"percentage_step"`
+			Oscillating       *bool    `json:"oscillating"`
 		} `json:"attributes"`
 	}
 	var rawStates []rawState
@@ -223,6 +237,12 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			MinTemp:            s.Attributes.MinTemp,
 			MaxTemp:            s.Attributes.MaxTemp,
 			TempStep:           s.Attributes.TargetTempStep,
+			HvacModes:          s.Attributes.HvacModes,
+
+			SupportedFeatures: s.Attributes.SupportedFeatures,
+			Percentage:        s.Attributes.Percentage,
+			PercentageStep:    s.Attributes.PercentageStep,
+			Oscillating:       s.Attributes.Oscillating,
 		}
 		if s.Attributes.VolumeLevel != nil {
 			states[s.EntityID] = withVolume(states[s.EntityID], *s.Attributes.VolumeLevel)

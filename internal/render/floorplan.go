@@ -308,8 +308,8 @@ var wallSlots = []string{"t", "b", "l", "r", "tl", "tr", "bl", "br", "c"}
 func roomTiles(r RoomCardView) []string {
 	var tiles []string
 	for _, l := range r.Lights {
-		tiles = append(tiles, fmt.Sprintf(`<span class="ha-light" data-entity-id="%s" data-on="%t"%s>%s</span>`,
-			html.EscapeString(l.EntityID), l.On, lightTileAttrs(l), l.IconSVG))
+		tiles = append(tiles, fmt.Sprintf(`<span class="ha-light" data-entity-id="%s" data-on="%t"%s title="%s">%s</span>`,
+			html.EscapeString(l.EntityID), l.On, lightTileAttrs(l), html.EscapeString(l.Name), l.IconSVG))
 	}
 	for _, d := range r.Devices {
 		// The accent rides in a data attribute (not a style attr) because
