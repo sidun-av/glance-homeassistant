@@ -154,6 +154,7 @@ type WidgetData struct {
 	Media           []MediaView
 	MediaURL        string     // endpoint the Now-playing buttons POST to ("" = no controls)
 	EntityURL       string     // endpoint a light/device tile's click or popover POSTs to ("" = no interactivity)
+	TemperatureURL  string     // floorplan: where a click on a room's temperature fetches its 12h series ("" = not clickable)
 	Floorplan       *Floorplan // required when Layout == "floorplan"
 	Rooms           []RoomCardView
 	CardMinHeight   int
@@ -361,7 +362,7 @@ const roomSizeCSS = `
 func styleBlock(cardMinHeight int) string {
 	return "<style>" +
 		fmt.Sprintf(roomSizeCSS, cardMinHeight, cardMinHeight+20, cardMinHeight+130) +
-		widgetCSS + chartCSS + floorplanCSS + nowPlayingCSS + entityControlCSS + accentRulesCSS() +
+		widgetCSS + chartCSS + floorplanCSS + nowPlayingCSS + entityControlCSS + tempChartCSS + accentRulesCSS() +
 		"</style>"
 }
 
@@ -383,8 +384,8 @@ func RenderWidget(data WidgetData) string {
 	if data.PauseWhenHidden {
 		pauseAttr = "true"
 	}
-	fmt.Fprintf(&b, `<div class="ha-widget ha-body" data-live-url="%s" data-poll-ms="%d" data-pause-hidden="%s" data-entity-url="%s">`,
-		html.EscapeString(data.LiveURL), data.PollIntervalMS, pauseAttr, html.EscapeString(data.EntityURL))
+	fmt.Fprintf(&b, `<div class="ha-widget ha-body" data-live-url="%s" data-poll-ms="%d" data-pause-hidden="%s" data-entity-url="%s" data-temp-url="%s">`,
+		html.EscapeString(data.LiveURL), data.PollIntervalMS, pauseAttr, html.EscapeString(data.EntityURL), html.EscapeString(data.TemperatureURL))
 
 	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span><span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
 
@@ -403,7 +404,7 @@ func RenderWidget(data WidgetData) string {
 		b.WriteString(`</div>`)
 	}
 
-	fmt.Fprintf(&b, `<img src="x" alt="" style="display:none;width:0;height:0" onerror="%s">`, html.EscapeString(bootstrapScript+entityControlScript))
+	fmt.Fprintf(&b, `<img src="x" alt="" style="display:none;width:0;height:0" onerror="%s">`, html.EscapeString(bootstrapScript+entityControlScript+tempChartScript))
 	b.WriteString(`</div>`)
 
 	return b.String()

@@ -236,8 +236,8 @@ const floorplanCSS = `
 	   with the speed (a gentle 10% still reaches a third of the way);
 	   --spdt speeds up the waves and the blades a little; natural-wind
 	   ("breeze") modes swell and ease off slowly, again scaling the cone as
-	   a whole; oscillation sweeps the stream side to side by --sweep around
-	   its direction, at a real fan's unhurried pace. Centre fans keep
+	   a whole; oscillation sweeps the stream wall to wall (--swl/--swr each
+	   way from its direction), at a real fan's unhurried pace. Centre fans keep
 	   their 360° ripple. */
 	.ha-fp-icons>.ha-device[data-effect="fan"]:not([data-center="true"]){--k:var(--spd,1)}
 	.ha-fp-icons>.ha-device[data-effect="fan"]:not([data-center="true"])::before,.ha-fp-icons>.ha-device[data-effect="fan"]:not([data-center="true"])::after{
@@ -251,8 +251,8 @@ const floorplanCSS = `
 	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-osc="true"][data-breeze="true"]:not([data-center="true"])::before{animation:ha-fp-sweep 12s ease-in-out infinite,ha-fp-gust 8s ease-in-out infinite}
 	.ha-fp-icons>.ha-device[data-on="true"][data-effect="fan"][data-osc="true"][data-breeze="true"]:not([data-center="true"])::after{animation:ha-fp-wave calc(2.6s - 1s * var(--spdt,.5)) linear infinite,ha-fp-sweep 12s ease-in-out infinite,ha-fp-gust 8s ease-in-out infinite}
 	@keyframes ha-fp-sweep{
-	  0%,100%{transform:translateX(-50%) rotate(calc(var(--dir) - var(--sweep,30deg))) scaleY(1)}
-	  50%{transform:translateX(-50%) rotate(calc(var(--dir) + var(--sweep,30deg))) scaleY(1)}}
+	  0%,100%{transform:translateX(-50%) rotate(calc(var(--dir) - var(--swl,30deg))) scaleY(1)}
+	  50%{transform:translateX(-50%) rotate(calc(var(--dir) + var(--swr,30deg))) scaleY(1)}}
 	@keyframes ha-fp-gust{
 	  0%,100%{width:calc(var(--len) * .9 * var(--k) * .7);height:calc(var(--len) * var(--reach,.92) * var(--k) * .7);opacity:.7}
 	  35%{width:calc(var(--len) * .9 * var(--k));height:calc(var(--len) * var(--reach,.92) * var(--k));opacity:1}

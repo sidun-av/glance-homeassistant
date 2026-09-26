@@ -634,3 +634,39 @@ func TestEntityHandler_ServiceCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestTemperatureHandler(t *testing.T) {
+	ha := fakeHAServer(t)
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	mux := newMux(cfg, newApp(cfg))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ha-widget/temperature?room=Living+Room", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Room   string `json:"room"`
+		Points []struct {
+			T int64    `json:"t"`
+			V *float64 `json:"v"`
+		} `json:"points"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	// 12 h of 15-minute buckets plus "now"
+	if out.Room != "Living Room" || len(out.Points) != 50 {
+		t.Fatalf("room %q, %d points", out.Room, len(out.Points))
+	}
+	if last := out.Points[len(out.Points)-1].V; last == nil || *last != 21.4 {
+		t.Errorf("last point = %v, want 21.4", last)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ha-widget/temperature?room=Hallway", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("room without a temperature sensor: status %d, want 404", rec.Code)
+	}
+}

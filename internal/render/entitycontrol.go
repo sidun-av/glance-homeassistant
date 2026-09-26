@@ -76,8 +76,8 @@ const entityControlScript = `;(function(img){
 
 	// fanVisuals turns a fan tile's live data into the CSS the air stream
 	// reads (see floorplanCSS): --spd/--spdt from the speed, data-breeze
-	// for natural-wind presets, data-osc and --sweep (from the device's
-	// angle select, if any) for oscillation. It re-runs whenever the poller
+	// for natural-wind presets, data-osc and --swl/--swr (how far each way,
+	// wall to wall, see fitSweep) for oscillation. It re-runs whenever the poller
 	// or the popover changes those attributes, so the map follows at once.
 	function fanVisuals(t){
 		var d=t.dataset;
@@ -86,37 +86,45 @@ const entityControlScript = `;(function(img){
 		if(d.breeze!==String(breeze))d.breeze=String(breeze);
 		var osc=d.oscillating==='true';
 		if(d.osc!==String(osc))d.osc=String(osc);
-		var angle=0;
-		try{
-			var ex=JSON.parse(d.extras||'[]'),st=JSON.parse(d.extraStates||'{}');
-			ex.forEach(function(e){if(e.domain==='select'&&/angle/i.test(e.name+e.id)){var v=parseFloat(st[e.id]!=null?st[e.id]:e.state);if(v)angle=v;}});
-		}catch(_){}
-		var want=angle?Math.min(45,Math.max(8,angle/4)):30;
-		t.style.setProperty('--sweep',fitSweep(t,want)+'deg');
+		var sw=fitSweep(t);t.style.setProperty('--swl',sw[0]+'deg');t.style.setProperty('--swr',sw[1]+'deg');
 	}
-	// fitSweep narrows the oscillation so the stream never swings into a
-	// wall: the tip of each visible cone edge, at the far ends of the sweep,
-	// must stay inside the room. Geometry mirrors floorplanCSS: the stream
-	// starts at the icon, points at the room centre, is len·reach·spd long,
-	// and its visible body is about ±0.36 of its length wide (the cone scales
-	// as a whole, so its opening angle doesn't depend on the speed).
-	function fitSweep(t,want){
-		var room=t.closest('.ha-fp-room');if(!room||t.dataset.center==='true')return want;
-		var R=room.getBoundingClientRect(),I=t.getBoundingClientRect();if(!R.width||!I.width)return want;
+	// fitSweep: how far the stream swings each way when oscillating — wall
+	// to wall, like the real fan's head. Walls the fan stands against are
+	// the limits: the visible edge of the cone may come to lie along such a
+	// wall but never point past it (a corner fan sweeps from one wall to
+	// the other). Walls across the room only have to contain the stream's
+	// tip. Geometry mirrors floorplanCSS: the stream starts at the icon,
+	// points at the room centre, is len·reach·spd long, and its visible
+	// body (inside the mask's soft edges) is about ±0.2 of its length wide.
+	// Angles are in the stream's own frame: a=0 points down, the direction
+	// vector is (-sin a, cos a).
+	function fitSweep(t){
+		var room=t.closest('.ha-fp-room');if(!room||t.dataset.center==='true')return [0,0];
+		var R=room.getBoundingClientRect(),I=t.getBoundingClientRect();if(!R.width||!I.width)return [30,30];
 		var px=I.left+I.width/2,py=I.top+I.height/2,vx=R.left+R.width/2-px,vy=R.top+R.height/2-py;
-		var len=Math.hypot(vx,vy);if(!len)return want;
+		var len=Math.hypot(vx,vy);if(!len)return [0,0];
 		var cs=getComputedStyle(t),reach=parseFloat(cs.getPropertyValue('--reach'))||.92,spd=parseFloat(t.style.getPropertyValue('--spd'))||1;
-		var L=len*reach*spd,half=Math.atan(0.36/reach),dir=Math.atan2(-vx,vy),m=4;
-		function inside(a){var x=px-Math.sin(a)*L,y=py+Math.cos(a)*L;return x>=R.left+m&&x<=R.right-m&&y>=R.top+m&&y<=R.bottom-m;}
-		for(var s=want;s>0;s-=1){
-			var r=s*Math.PI/180;
-			if(inside(dir+r+half)&&inside(dir-r-half)&&inside(dir+r-half)&&inside(dir-r+half))return s;
+		var L=len*reach*spd,half=Math.atan(0.2/reach),dir=Math.atan2(-vx,vy),eps=1e-3,m=4;
+		var hug={top:py-R.top<50,bottom:R.bottom-py<30,left:px-R.left<30,right:R.right-px<30};
+		function ok(a){
+			var dx=-Math.sin(a),dy=Math.cos(a),x=px+dx*L,y=py+dy*L;
+			if(hug.top){if(dy<-eps)return false;}else if(y<R.top+m)return false;
+			if(hug.bottom){if(dy>eps)return false;}else if(y>R.bottom-m)return false;
+			if(hug.left){if(dx<-eps)return false;}else if(x<R.left+m)return false;
+			if(hug.right){if(dx>eps)return false;}else if(x>R.right-m)return false;
+			return true;
 		}
-		return 0;
+		// each side on its own: the stream points at the centre, which in a
+		// non-square room is not the corner's bisector
+		function side(sign){
+			for(var s=120;s>0;s-=1){var r=sign*s*Math.PI/180;if(ok(dir+r+sign*half)&&ok(dir+r))return s;}
+			return 0;
+		}
+		return [side(-1),side(1)];
 	}
 	root.querySelectorAll('.ha-device[data-effect="fan"]').forEach(function(t){
 		fanVisuals(t);
-		new MutationObserver(function(){fanVisuals(t);}).observe(t,{attributes:true,attributeFilter:['data-percentage','data-preset-mode','data-oscillating','data-extra-states']});
+		new MutationObserver(function(){fanVisuals(t);}).observe(t,{attributes:true,attributeFilter:['data-percentage','data-preset-mode','data-oscillating']});
 		var room=t.closest('.ha-fp-room');
 		if(room&&window.ResizeObserver)new ResizeObserver(function(){fanVisuals(t);}).observe(room);
 	});

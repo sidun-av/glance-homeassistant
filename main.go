@@ -1053,6 +1053,7 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		Media:           media,
 		MediaURL:        mediaURL(a.cfg.PublicURL),
 		EntityURL:       entityURL(a.cfg.PublicURL),
+		TemperatureURL:  temperatureURL(a.cfg.PublicURL),
 		Rooms:           views,
 		CardMinHeight:   a.cfg.Temperature.ChartHeight,
 		LiveURL:         liveURL(a.cfg.PublicURL),
@@ -1061,6 +1062,80 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 	}
 
 	return render.RenderWidget(widgetData), nil
+}
+
+// temperatureHandler serves a room's temperature over the last 12 hours
+// for the popover a click on the map's temperature chip opens: 15-minute
+// buckets (step-filled from HA history, averaged across the room's
+// sensors), null where there is no data yet.
+func (a *app) temperatureHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-store")
+	room := r.URL.Query().Get("room")
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	cards, err := a.buildModel(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	var ids []string
+	for _, c := range cards {
+		if c.Room == room && c.Temperature != nil {
+			ids = c.Temperature.EntityIDs
+		}
+	}
+	if len(ids) == 0 {
+		http.Error(w, "no temperature for that room", http.StatusNotFound)
+		return
+	}
+	const step = 15 * time.Minute
+	now := time.Now()
+	end := now.Truncate(step)
+	start := end.Add(-12 * time.Hour)
+	var timestamps []time.Time
+	for t := start; !t.After(end); t = t.Add(step) {
+		timestamps = append(timestamps, t)
+	}
+	timestamps = append(timestamps, now)
+	history, err := a.client.FetchHistory(ctx, ids, start, now)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	var series [][]float64
+	for _, id := range ids {
+		if pts := history[id]; len(pts) > 0 {
+			series = append(series, hass.StepForwardFillStrict(pts, timestamps))
+		}
+	}
+	avg := hass.AverageSeries(series)
+	type point struct {
+		T int64    `json:"t"`
+		V *float64 `json:"v"`
+	}
+	out := struct {
+		Room   string  `json:"room"`
+		Points []point `json:"points"`
+	}{Room: room, Points: make([]point, len(timestamps))}
+	for i, t := range timestamps {
+		out.Points[i].T = t.UnixMilli()
+		if i < len(avg) && !math.IsNaN(avg[i]) {
+			v := math.Round(avg[i]*10) / 10
+			out.Points[i].V = &v
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// temperatureURL is where the temperature popover fetches its series
+// ("" without a public_url → the chip isn't clickable).
+func temperatureURL(publicURL string) string {
+	if publicURL == "" {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + "/temperature"
 }
 
 func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
@@ -1101,6 +1176,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	mux.HandleFunc("/live.json", a.liveHandler)
 	mux.HandleFunc("/media", a.mediaHandler)
 	mux.HandleFunc("/entity", a.entityHandler)
+	mux.HandleFunc("/temperature", a.temperatureHandler)
 	mux.HandleFunc("/art", a.artHandler)
 	ed := &editor.Handler{Store: a, Source: a}
 	ed.Register(mux, "")
@@ -1120,6 +1196,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 		mux.HandleFunc(prefix+"/live.json", a.liveHandler)
 		mux.HandleFunc(prefix+"/media", a.mediaHandler)
 		mux.HandleFunc(prefix+"/entity", a.entityHandler)
+		mux.HandleFunc(prefix+"/temperature", a.temperatureHandler)
 		mux.HandleFunc(prefix+"/art", a.artHandler)
 		ed.Register(mux, prefix)
 	}
