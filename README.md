@@ -43,7 +43,8 @@ floorplan:
 ```
 
 Each room shows its name, and — only where the room has that data — the current temperature
-with a trend arrow (red ↑ rising, blue ↓ falling over roughly the last 4 hours, ≥0.2°), and its
+with a trend arrow (red ↑ rising, blue ↓ falling over roughly the last 4 hours, ≥0.2°; click it
+for a chart of the last 12 hours), and its
 entities as tiles on a virtual 3×3 grid: tiles take the wall slots first (top, bottom, left,
 right, then the corners) and hug that wall; only a ninth tile lands in the centre. Every source
 casts a beam toward the room's centre, sized to stop there whatever the room's shape:
@@ -52,8 +53,10 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
 - **Devices** (`devices.domains`, default fans, climate, humidifiers, water heaters, media
   players, vacuums, covers, locks — real MDI icons per domain, or the entity's own `mdi:` icon
   when it is one we ship): a running `fan`, or a `climate` unit that is cooling/fanning, blows a
-  blue stream with moving waves and the fan icon spins; a heating `climate`/`water_heater` blows an
-  orange one; a playing media player sends notes drifting up. A source placed in a room's centre
+  blue stream with moving waves and the fan icon spins — a fan's stream is as long as its speed,
+  gusts in a natural-wind/breeze preset, and while oscillating sweeps wall to wall (its edge comes
+  to lie along the walls the fan stands against, never past them); a heating
+  `climate`/`water_heater` blows an orange one; a playing media player sends notes drifting up. A source placed in a room's centre
   cell glows or ripples all around instead of casting a beam. Other devices just light up while
   active (cleaning, open, unlocked, on).
   `switch` is off by default because most switches are a light's second channel or a config
@@ -62,6 +65,29 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
   otherwise), and a door icon per contact sensor. An occupied room also gets a thin accent outline.
 
 `max_width` caps the map's size so it does not swallow a wide column.
+
+### Controlling things from the map
+
+With a `public_url` set, the map is interactive (mouse or touch):
+
+- **Tap** a light or device tile to toggle it (`homeassistant.toggle`; the tile flips at once
+  and reconciles with HA on the next poll).
+- **Long-press** (½ s) to open its controls:
+  - light — brightness, colour temperature and colour swatches, whichever `supported_color_modes`
+    allows;
+  - fan — speed, preset modes (e.g. straight / natural wind), oscillation;
+  - climate — target temperature (−/+ and a slider) and HVAC mode; water heater — target;
+  - plus the device's other controls: every `select` (chips), `number` (slider) and `switch` of the
+    same Home Assistant device — a fan's swing angle, level, off timer, beep, child lock… Stock
+    Xiaomi names get readable labels; entities renamed in HA keep their names.
+- **Click a room's temperature** for a popover with its last 12 hours (now / min / max and a
+  crosshair readout).
+
+All of it goes through this service, never straight to HA: `POST <public_url>/entity`
+`{entity_id, action, …}` checks the domain/action against an allowlist and validates values
+(`select`/`number`/`switch` only for entities the map actually shows), and
+`GET <public_url>/temperature?room=<Area>` serves the chart's 15-minute series. Media players are
+controlled from the Now playing panel instead.
 
 ### Now playing
 
@@ -80,18 +106,24 @@ HA on the next poll.
 ### Editing the map in the browser
 
 Hover the widget and click the gear in its top-right corner (or open `<public_url>/edit`, e.g.
-`https://your-glance/ha-widget/edit`). The editor lets you:
+`https://your-glance/ha-widget/edit`). The editor is one map that looks like the widget, styled with
+Glance's theme variables, and works with mouse or touch:
 
-- set the map's size in cells, its aspect ratio and max width;
-- add, rename and delete rooms, assign each to a Home Assistant Area, and shape them on the map:
-  paint cells (click/drag; Alt-click removes a cell), drag the handles on the selected room's edges
-  to resize it, or drag a room by its name to move it. Rooms stay solid rectangles; a neighbour in
-  the way is trimmed to its largest remaining rectangle (freed cells stay empty until you paint
-  them), and a change that would erase a room entirely is refused;
-- set each room's inner grid and drag the room's entities onto cells — an edge cell hugs that wall
-  and beams toward the centre, the centre cell casts no beam; drag back to the list to unplace,
-  ⊘ to hide an entity from the map; "show all" lists the Area's other entities too;
-- Preview without saving, Save, or Reset to the config-defined layout.
+- **Rooms** (left): select a room to set its Home Assistant Area and the label shown on the map,
+  or delete it; **+ Add room** takes the largest free area. **Map**: size in cells (steppers),
+  aspect ratio, max width.
+- **Map** (centre): click a room to select it, drag it to move, pull the handles on its edges and
+  corners to resize — a neighbour in the way gives way (trimmed to its largest remaining
+  rectangle), a change that would erase a room is refused. Drag across empty floor to draw a new
+  room. Inside the selected room, drag entity icons between cells: an edge cell hugs that wall and
+  beams toward the centre, the centre cell glows all around.
+- **Entities** (right): the selected room's tiles grouped as *On the map*, *Auto-placed* (the
+  widget lines these up along the walls) and *Hidden* — drag between the lists and the map, or use
+  the eye to hide/show. **Placement grid**: match the room's footprint, or a custom size.
+- **Preview** (bottom): the real widget, refreshed as you edit (it is live — tapping a lamp there
+  switches it).
+- Undo/redo (⌘/Ctrl+Z, ⇧⌘Z / Ctrl+Y), Save (⌘/Ctrl+S), an unsaved-changes marker and a warning
+  on leaving; the ⋯ menu discards changes or starts over from the config layout.
 
 Saved layouts live in `LAYOUT_FILE` (default `/data/floorplan.json`) and take precedence over the
 `floorplan:` config, which remains the seed. Mount a volume at `/data` to keep them across
@@ -103,8 +135,11 @@ container recreations:
 ```
 
 The editor has no login of its own — it is exactly as exposed as the widget's `public_url`. If that
-is reachable from the internet, put it behind your reverse proxy's auth (forward-auth, access list). No temperature chart. Colours all come
-from Glance's theme variables, so it follows whatever theme the dashboard runs. The map's height
+is reachable from the internet, put it behind your reverse proxy's auth (forward-auth, access list) — the same goes for the
+map's controls (`/entity`), which switch real devices.
+
+The floorplan layout has no per-room temperature chart on the map itself (the chip opens one).
+Colours all come from Glance's theme variables, so it follows whatever theme the dashboard runs. The map's height
 follows its width via `aspect_ratio` (default: square cells, i.e. `columns/rows`). Live updates
 work exactly as in the cards layout.
 
@@ -243,7 +278,7 @@ sensors state on screen rather than clearing it, and retries on the next interva
 
 ## Out of scope (for now)
 
-Light control (this widget is read-only), humidity and other HA domains, multiple Home Assistant
+Scenes/scripts/automations, humidity, multiple Home Assistant
 instances, history beyond HA's recorder retention, and pagination (aimed at homes small enough to
 fit on one screen).
 
