@@ -281,7 +281,7 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 				if state.Domain == "fan" {
 					d.HasSpeed = state.SupportedFeatures&1 != 0 || state.Percentage != nil
 					if state.Percentage != nil {
-						d.Percentage = *state.Percentage
+						d.Percentage = int(math.Round(*state.Percentage))
 					}
 					d.PercentageStep = 1
 					if state.PercentageStep != nil && *state.PercentageStep > 0 {

@@ -129,7 +129,7 @@ type EntityState struct {
 	// fan only. SupportedFeatures is HA's bitmask (fan: 1 set_speed,
 	// 2 oscillate); the value fields are nil when the fan doesn't report them.
 	SupportedFeatures int
-	Percentage        *int
+	Percentage        *float64
 	PercentageStep    *float64
 	Oscillating       *bool
 }
@@ -184,7 +184,7 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			HvacModes          []string `json:"hvac_modes"`
 
 			SupportedFeatures int      `json:"supported_features"`
-			Percentage        *int     `json:"percentage"`
+			Percentage        *float64 `json:"percentage"`
 			PercentageStep    *float64 `json:"percentage_step"`
 			Oscillating       *bool    `json:"oscillating"`
 		} `json:"attributes"`

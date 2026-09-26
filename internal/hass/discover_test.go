@@ -281,7 +281,7 @@ func TestBuildMediaPlayers(t *testing.T) {
 }
 
 func TestBuildModel_FanAndClimateControls(t *testing.T) {
-	pct, step, osc := 66, 33.33, true
+	pct, step, osc := 66.4, 33.33, true
 	tgt, cur := 21.5, 19.0
 	rooms := []Room{{Name: "R", EntityIDs: []string{"fan.f", "fan.plain", "climate.c", "water_heater.w"}}}
 	states := map[string]EntityState{
