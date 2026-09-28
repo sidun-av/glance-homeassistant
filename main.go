@@ -832,6 +832,9 @@ func projectYesterday(values, dayEarlier []float64, currentIdx int) {
 const (
 	trendThreshold = 0.2
 	trendLookback  = 2 // buckets (barColumnsCount=12 → 2h each → ~4h window)
+	// trendWindow is how far back the room badge's arrow looks: the live
+	// reading vs the one trendWindow ago (sampled as a 2-point series).
+	trendWindow = time.Hour
 )
 
 func temperatureTrend(values []float64, currentIdx int) int {
@@ -1000,6 +1003,8 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		}
 	}
 
+	trendTimestamps := []time.Time{now.Add(-trendWindow), now}
+
 	views := make([]render.RoomCardView, len(cards))
 	for i, card := range cards {
 		view := roomCardView(card)
@@ -1007,7 +1012,7 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		if card.Temperature != nil {
 			view.HasTemperature = true
 
-			var series, yesterday [][]float64
+			var series, yesterday, recent [][]float64
 			for _, id := range card.Temperature.EntityIDs {
 				points, ok := history[id]
 				if !ok || len(points) == 0 {
@@ -1017,13 +1022,17 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 				nanOutFuture(filled)
 				series = append(series, filled)
 				yesterday = append(yesterday, hass.StepForwardFillStrict(points, dayEarlier))
+				recent = append(recent, hass.StepForwardFillStrict(points, trendTimestamps))
 			}
 			avg := hass.AverageSeries(series)
 			if len(avg) == 0 || currentIdx >= len(avg) || math.IsNaN(avg[currentIdx]) {
 				view.TempNoData = true
 			} else {
 				view.CurrentTemp = fmt.Sprintf("%.0f°", avg[currentIdx])
-				view.TempTrend = temperatureTrend(avg, currentIdx)
+				// Not from avg: its current bucket holds the reading at the
+				// bucket's start (up to 2h stale with "bars"), so a fresh
+				// rise never showed. Compare the live reading with an hour ago.
+				view.TempTrend = temperatureTrend(hass.AverageSeries(recent), 1)
 				if a.cfg.Temperature.ChartStyle == "bars" {
 					projectYesterday(avg, hass.AverageSeries(yesterday), currentIdx)
 					barData := render.BarChartData{Values: avg, IsDaytime: isDaytime, CurrentIndex: currentIdx, TimeLabels: barColumnTimeLabels(timestamps)}

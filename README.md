@@ -43,7 +43,7 @@ floorplan:
 ```
 
 Each room shows its name, and — only where the room has that data — the current temperature
-with a trend arrow (red ↑ rising, blue ↓ falling over roughly the last 4 hours, ≥0.2°; click it
+with a trend arrow (red ↑ rising, blue ↓ falling over the last hour, ≥0.2°; click it
 for a chart of the last 12 hours), and its
 entities as tiles on a virtual 3×3 grid: tiles take the wall slots first (top, bottom, left,
 right, then the corners) and hug that wall; only a ninth tile lands in the centre. Every source
