@@ -172,6 +172,101 @@ cells (pad with `.` for empty space), and each key must cover one rectangle — 
 possible with CSS grid areas; split such a room into two keys mapped to the same Area if you need
 it. Violations are reported at startup naming the key.
 
+## 3D home (House Control)
+
+If you draw your home in [House Control](https://github.com/sidun-av/house-control) (a macOS app
+with a 3D home model), the widget can show that model too, driven by the same Home Assistant:
+lamps on/off, brightness and colour, climate mode and target temperature, a robot vacuum's
+start/pause/dock and suction. House Control's web build is vendored into this image (see
+"Updating the vendored build" below), so there is nothing extra to run on the server. The widget
+server reads and controls Home Assistant on the 3D view's behalf, and the HA token never reaches
+the browser.
+
+**What you see.** Once a plan has been uploaded and `public_url` is set, the widget's header gets
+a **Plan | 3D** switch. **3D** shows the House Control page in an iframe under
+`<public_url>/house/`. **Plan** shows the usual map or cards and removes the iframe, so no 3D page
+is loaded and no WebGL runs while it is selected. A first visit opens on **3D**, except on narrow
+screens (600 px or less), which open on **Plan**. The choice is remembered per browser. In Safari
+17 or later on a Mac, a small card offers to add the dashboard to the Dock (Safari's
+*File → Add to Dock…*), so it opens in its own window like an app. **Not now** hides the card for
+good in that browser. Without an uploaded plan the widget looks exactly as before: no switch, no
+card.
+
+**What the 3D view controls.** Only devices that the plan links to Home Assistant, with a domain
+that fits their kind: lights are `light.*` or `switch.*`, an AC is `climate.*`, a vacuum is
+`vacuum.*`. Every other device is dropped from the served plan: unlinked ones, devices on another
+service, unknown domains. So nothing in the view is simulated or silently inert. Room, device and
+scene names are shown as they are in the plan. `HOUSE_LANG` sets the language of the view's own
+text (`en` or `ru`).
+
+**Getting the plan to the server.** House Control keeps its plan on the Mac at
+`~/Library/Application Support/HouseControl/plan.json`. `tools/house-plan-push` pushes it to the
+widget server whenever it changes. The push goes straight over the LAN to the container's own port,
+not through the reverse proxy (see the upload rules below). On the Mac:
+
+```bash
+mkdir -p ~/.config/glance-house && chmod 700 ~/.config/glance-house
+echo 'http://<lan-host>:<port>' > ~/.config/glance-house/url    # this container's LAN origin
+( umask 077; openssl rand -hex 32 > ~/.config/glance-house/secret )
+chmod 600 ~/.config/glance-house/secret
+tools/house-plan-push/install.sh            # --dry-run first shows what it would do
+```
+
+Give the server the same secret as `HOUSE_PLAN_SECRET`. `install.sh` installs a user LaunchAgent.
+It runs `push.sh` when the plan file changes, every 5 minutes, and at login. An unchanged plan
+(same hash) is not sent again, and a failed push is retried on the next run. It logs to
+`~/Library/Logs/glance-house-push.log`, where a successful run says `pushed <hash>`. To push once
+by hand, run `sh tools/house-plan-push/push.sh`.
+
+If the log says `push failed (curl 7, ...)` even though the server is up, macOS Local Network
+privacy is blocking the background agent. Install the same job as a LaunchDaemon that runs as you
+instead (needs sudo):
+
+```bash
+tools/house-plan-push/uninstall.sh
+tools/house-plan-push/install.sh --daemon
+```
+
+`uninstall.sh [--daemon]` stops and removes the job. It keeps `~/.config/glance-house` and the log.
+
+**Endpoints.** All of these are served under `<public_url>/house/`, and also at `/house/` on the
+container's own port.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /house/` | The House Control page, with its boot config (API path, language) injected. Static files are under `/house/assets/`. |
+| `GET /house/plan` | The stored plan, filtered to the HA-linked devices, with an `ETag`. Returns 404 `{"error":"no_plan"}` before the first upload. |
+| `PUT /house/plan` | Upload a plan. Needs `Authorization: Bearer <HOUSE_PLAN_SECRET>`. The rules are listed below. |
+| `GET /house/state` | Current state of the plan's devices, keyed by plan id, plus `planVersion` (the plan's ETag; open views reload when it changes). Returns 503 `{"error":"unavailable"}` when Home Assistant is down or slow. |
+| `POST /house/command` | `{"kind","id","patch","state"}` with `Content-Type: application/json`. Accepted only for a device in the served plan, and only for patch keys and values that are allowed for its kind. Add `?dry_run=1` to get back the Home Assistant service calls it would make, without making them. |
+
+`PUT /house/plan` rules:
+
+- Uploads are disabled (403) while `HOUSE_PLAN_SECRET` is empty.
+- An upload is refused (403) when it carries `X-Forwarded-For`, `X-Real-IP` or `Forwarded`. That
+  means it came through a reverse proxy rather than straight over the LAN.
+- The body must be at most 1 MiB and a JSON object with a non-empty `rooms` array.
+- No key at any depth may be named `token`, `accessToken`, `access_token`, `password` or `secret`.
+
+Error bodies are only codes such as `{"error":"unknown_device"}`. Home Assistant's own error text
+goes to the server log. `/house/*` sends no CORS headers: the page is meant to be used same-origin,
+from inside the widget.
+
+**Who can control the home.** Anyone who can open `<public_url>` can switch the devices in the 3D
+view. This is the same rule as the map's controls and the editor. If `public_url` is reachable
+from the internet, keep it behind your reverse proxy's auth.
+
+**Updating the vendored build.** `internal/house/dist/` is House Control's `web/dist`, built at a
+pinned commit. Its `VERSION` file records which commit. To move to another commit, check out the
+House Control source next to this repo (or point `HOUSE_CONTROL_SRC` at it) and run:
+
+```bash
+tools/house-dist/update.sh <commit>
+go test ./...
+```
+
+That needs Node; the Docker build does not.
+
 ## Setup
 
 ### 1. Create a Home Assistant long-lived access token
@@ -284,6 +379,9 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `LIVE_PAUSE_WHEN_HIDDEN` | `live.pause_when_hidden` | `true` | Pause polling while the browser tab is backgrounded |
 | `SENSORS_CONTACT_DEVICE_CLASSES` | `sensors.contact_device_classes` | `door,window,garage_door,opening` | Comma-separated `binary_sensor` device classes shown as Open/Closed |
 | `SENSORS_MOTION_DEVICE_CLASSES` | `sensors.motion_device_classes` | `motion,occupancy` | Comma-separated `binary_sensor` device classes shown as Motion/Clear |
+| `HOUSE_PLAN_FILE` | `house.plan_file` | `/data/house-plan.json` | Where the uploaded House Control plan is kept (see "3D home") |
+| `HOUSE_PLAN_SECRET` | `house.secret` | `""` (uploads off) | Bearer secret for `PUT /house/plan`; empty disables uploads |
+| `HOUSE_LANG` | `house.lang` | `en` | Language of the Plan/3D switch, the Dock card and the 3D view: `en` or `ru` |
 
 The service's own listen port and config-file path aren't `config.yml` fields — they're read from
 the environment before any config is loaded, so they're always plain environment variables:

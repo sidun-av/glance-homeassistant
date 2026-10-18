@@ -20,11 +20,20 @@ services:
       - LIVE_PAUSE_WHEN_HIDDEN=${LIVE_PAUSE_WHEN_HIDDEN:-}
       - SENSORS_CONTACT_DEVICE_CLASSES=${SENSORS_CONTACT_DEVICE_CLASSES:-}
       - SENSORS_MOTION_DEVICE_CLASSES=${SENSORS_MOTION_DEVICE_CLASSES:-}
+      # 3D home view (House Control) — see the README's "3D home" section.
+      # The secret guards PUT /house/plan; leave it unset to disable uploads.
+      - HOUSE_PLAN_SECRET=${HOUSE_PLAN_SECRET:-}
+      - HOUSE_LANG=${HOUSE_LANG:-}
+    # Optional: a LAN port for tools/house-plan-push on your Mac. Plan uploads
+    # are refused when they come through a reverse proxy, so the Mac needs
+    # a direct route to the container.
+    # ports:
+    #   - "8081:8080"
     # Optional: mount a hand-edited config.yml instead of (or alongside) the
     # environment variables above — see config.example.yml. Not needed for a
     # GUI/env-var-only setup; env vars always take priority over this file.
     volumes:
-      - glance_ha_data:/data   # the browser editor saves the floorplan here
+      - glance_ha_data:/data   # the editor's floorplan and the uploaded house plan live here
     #   - ./glance-homeassistant/config.yml:/config.yml:ro
 
 volumes:

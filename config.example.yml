@@ -32,6 +32,14 @@ devices:
   exclude: []   # env: DEVICES_EXCLUDE — entity_ids to skip, e.g. [switch.usb_light_l2]
   map_cameras: {}   # env: DEVICES_MAP_CAMERAS — a vacuum's map entity, e.g. {vacuum.robot: camera.robot_map}; unset = a camera/image of the same HA device
 
+# 3D home view (House Control): the Plan | 3D switch appears once a plan has
+# been uploaded (PUT <origin>/house/plan, see tools/house-plan-push) and
+# public_url is set. Keep the secret out of this file if you can: env wins.
+house:
+  plan_file: /data/house-plan.json   # env: HOUSE_PLAN_FILE — where the uploaded plan is kept
+  secret: ""   # env: HOUSE_PLAN_SECRET — bearer secret for uploads; empty = uploads disabled
+  lang: en   # env: HOUSE_LANG — "en" or "ru": the switch, the Dock card and the 3D view
+
 layout: cards
 layout_file: /data/floorplan.json   # env: LAYOUT_FILE — the browser editor (<public_url>/edit) saves here; overrides floorplan: below when present   # env: LAYOUT — "cards" (per-room cards with temperature chart) or "floorplan" (schematic map, badges only)
 
