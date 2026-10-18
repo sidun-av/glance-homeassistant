@@ -42,6 +42,10 @@ func TestRenderWidget_HouseSwitchRussian(t *testing.T) {
 	if sw, badge := strings.Index(head, "ha-house-switch"), strings.Index(head, "ha-live-badge"); sw < 0 || badge < 0 || sw > badge {
 		t.Errorf("switch not before the live badge in the head: %s", head)
 	}
+	// Toggle buttons, not a half-built ARIA tab pattern.
+	if !strings.Contains(head, `role="group"`) || strings.Count(head, `aria-pressed="false"`) != 2 || strings.Contains(head, `role="tab`) {
+		t.Errorf("switch is not a group of aria-pressed buttons: %s", head)
+	}
 	// The invite and the frame are siblings of the map, inside the widget.
 	if i, m := strings.Index(html, "ha-house-invite"), strings.Index(html, `class="ha-rooms"`); i < 0 || m < 0 || i > m {
 		t.Errorf("invite is not above the cards")

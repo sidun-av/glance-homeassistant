@@ -74,9 +74,9 @@ func houseStrings(lang string) houseCopy {
 // segment is selected is decided in the browser (stored choice, screen
 // width), so both start unselected.
 func renderHouseSwitch(c houseCopy) string {
-	return `<div class="ha-house-switch" role="tablist">` +
-		`<button type="button" role="tab" data-house-view="plan" aria-selected="false">` + html.EscapeString(c.Plan) + `</button>` +
-		`<button type="button" role="tab" data-house-view="3d" aria-selected="false">` + html.EscapeString(c.ThreeD) + `</button>` +
+	return `<div class="ha-house-switch" role="group">` +
+		`<button type="button" data-house-view="plan" aria-pressed="false">` + html.EscapeString(c.Plan) + `</button>` +
+		`<button type="button" data-house-view="3d" aria-pressed="false">` + html.EscapeString(c.ThreeD) + `</button>` +
 		`</div>`
 }
 
@@ -195,7 +195,7 @@ const houseScript = `;(function(img){var root=img.closest('.ha-widget');if(!root
 	`function get(k){try{return localStorage.getItem(k);}catch(e){return null;}}` +
 	`function put(k,v){try{localStorage.setItem(k,v);}catch(e){}}` +
 	`function mq(q){try{return matchMedia(q).matches;}catch(e){return false;}}` +
-	`function show(view){root.dataset.houseView=view;sw.querySelectorAll('[data-house-view]').forEach(function(b){b.setAttribute('aria-selected',b.dataset.houseView===view?'true':'false');});var f=frame.querySelector('iframe');if(view==='3d'){if(!f){f=document.createElement('iframe');f.setAttribute('src',frame.dataset.houseUrl);f.setAttribute('title',frame.dataset.frameTitle||'');f.setAttribute('loading','eager');f.setAttribute('allow','fullscreen');frame.appendChild(f);}frame.hidden=false;}else{if(f)f.remove();frame.hidden=true;}}` +
+	`function show(view){root.dataset.houseView=view;sw.querySelectorAll('[data-house-view]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.houseView===view?'true':'false');});var f=frame.querySelector('iframe');if(view==='3d'){if(!f){f=document.createElement('iframe');f.setAttribute('src',frame.dataset.houseUrl);f.setAttribute('title',frame.dataset.frameTitle||'');f.setAttribute('loading','eager');f.setAttribute('allow','fullscreen');frame.appendChild(f);}frame.hidden=false;}else{if(f)f.remove();frame.hidden=true;}}` +
 	`show(haHouseInitialView(get('ha-house-view'),mq('(max-width: 600px)')));` +
 	`sw.addEventListener('click',function(e){var b=e.target.closest('[data-house-view]');if(!b)return;var v=b.dataset.houseView==='3d'?'3d':'plan';put('ha-house-view',v);if(root.dataset.houseView!==v)show(v);});` +
 	`if(invite&&haHouseShouldInvite(navigator.userAgent,navigator.maxTouchPoints,navigator.standalone,mq('(display-mode: standalone)'),get('ha-house-dock')==='dismissed')){invite.hidden=false;invite.addEventListener('click',function(e){var b=e.target.closest('[data-house-dock]');if(!b)return;if(b.dataset.houseDock==='add'){invite.dataset.step='steps';return;}put('ha-house-dock','dismissed');invite.hidden=true;});}` +
@@ -211,7 +211,7 @@ const houseCSS = `
 	  font:inherit;font-size:.72em;letter-spacing:.06em;text-transform:uppercase;line-height:1;
 	  color:var(--color-text-subdue);padding:5px 11px;border-radius:5px;transition:background .15s,color .15s}
 	.ha-house-switch button:hover{color:var(--color-text-highlight)}
-	.ha-house-switch button[aria-selected="true"]{background:var(--color-primary);color:var(--color-widget-background)}
+	.ha-house-switch button[aria-pressed="true"]{background:var(--color-primary);color:var(--color-widget-background)}
 	.ha-house-switch button:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
 	.ha-widget:has(> .ha-fp-edit) > .ha-section-head{padding-right:26px}
 
