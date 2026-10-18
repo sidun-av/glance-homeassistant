@@ -769,8 +769,12 @@ func TestCameraHandler_OnlyAVacuumsMapCamera(t *testing.T) {
 	if rec.Code != 200 || rec.Body.String() != "PNGDATA" {
 		t.Fatalf("map camera: status %d body %q", rec.Code, rec.Body.String())
 	}
-	if ct, cc, ao := rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"), rec.Header().Get("Access-Control-Allow-Origin"); ct != "image/png" || cc != "no-store" || ao != "*" {
-		t.Errorf("headers: Content-Type %q, Cache-Control %q, Access-Control-Allow-Origin %q", ct, cc, ao)
+	if ct, cc := rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"); ct != "image/png" || cc != "no-store" {
+		t.Errorf("headers: Content-Type %q, Cache-Control %q", ct, cc)
+	}
+	// no CORS: another site open in the browser must not read the floor plan
+	if ao := rec.Header().Get("Access-Control-Allow-Origin"); ao != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want none", ao)
 	}
 	if len(cameraHits) != 1 || cameraHits[0] != "/api/camera_proxy/camera.robot_map" {
 		t.Errorf("upstream camera calls %v", cameraHits)
@@ -816,5 +820,30 @@ func TestWidgetHandler_CarriesCameraURL(t *testing.T) {
 	newMux(cfg, newApp(cfg)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/widget", nil))
 	if !strings.Contains(rec.Body.String(), `data-camera-url="/ha-widget/camera"`) {
 		t.Errorf("widget lacks data-camera-url")
+	}
+}
+
+func TestCameraHandler_UpstreamErrorIsGeneric(t *testing.T) {
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/template":
+			fmt.Fprint(w, `[{"id":"hall","name":"Hall","entities":["vacuum.robot"],"devices":[{"name":"Robot","entities":["vacuum.robot","camera.robot_map"]}]}]`)
+		case r.URL.Path == "/api/states":
+			fmt.Fprint(w, `[{"entity_id":"vacuum.robot","state":"docked","attributes":{}},{"entity_id":"camera.robot_map","state":"idle","attributes":{}}]`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	cfg.Devices.Domains = []string{"vacuum"}
+	rec := httptest.NewRecorder()
+	newMux(cfg, newApp(cfg)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/camera?entity_id=camera.robot_map", nil))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502", rec.Code)
+	}
+	// HA's errors (status, internal URL) are logged, never echoed
+	if body := strings.TrimSpace(rec.Body.String()); body != "map camera unavailable" {
+		t.Errorf("502 body leaks upstream detail: %q", rec.Body.String())
 	}
 }

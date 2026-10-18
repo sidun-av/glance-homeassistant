@@ -539,7 +539,10 @@ func TestEntityControlScript_VacuumWiring(t *testing.T) {
 		`'start'`, `'pause'`, `'return_to_base'`, `'locate'`, `'set_fan_speed'`,
 		`root.dataset.cameraUrl`,
 		`VAC_MAP_REFRESH_MS=10000`,
-		`window.URL.revokeObjectURL`,
+		`new Image()`,
+		`a==='unavailable'`,
+		`document.hidden`,
+		`root.isConnected`,
 	} {
 		if !strings.Contains(entityControlScript, want) {
 			t.Errorf("entityControlScript missing %q", want)
@@ -548,6 +551,23 @@ func TestEntityControlScript_VacuumWiring(t *testing.T) {
 	for _, want := range []string{`.ha-pop-vac{`, `.ha-pop-map{`, `.ha-pop-act{`} {
 		if !strings.Contains(entityControlCSS, want) {
 			t.Errorf("entityControlCSS missing %q", want)
+		}
+	}
+}
+
+func TestEntityControlScript_MapNeedsNoCORS(t *testing.T) {
+	// the map is loaded as a plain image (no fetch → /camera needs no CORS)
+	for _, bad := range []string{`fetch(u`, `createObjectURL`} {
+		if strings.Contains(entityControlScript, bad) {
+			t.Errorf("entityControlScript still uses %q for the map", bad)
+		}
+	}
+}
+
+func TestBootstrapScript_ClearsStaleVacuumFields(t *testing.T) {
+	for _, want := range []string{`delete el.dataset.battery`, `delete el.dataset.batteryLow`, `delete el.dataset.fanSpeed`} {
+		if !strings.Contains(bootstrapScript, want) {
+			t.Errorf("bootstrapScript missing %q", want)
 		}
 	}
 }

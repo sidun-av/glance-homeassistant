@@ -561,11 +561,10 @@ func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
 // needs the HA token) for the vacuum popover. Only a camera of the same HA
 // device as a vacuum tile on the map is served — not any camera in HA.
 // no-store: the map changes as the robot drives, and the popover refetches
-// it while cleaning.
+// it while cleaning. Deliberately no CORS header (like /art): the popover
+// loads it as a plain <img>, and with one any web page open in the browser
+// could fetch() the home's floor plan and read its pixels.
 func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
-	// the popover fetch()es it (as a blob), so a public_url on another
-	// origin needs CORS, like /temperature
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	id := r.URL.Query().Get("entity_id")
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -575,7 +574,9 @@ func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	body, ctype, err := a.client.FetchPicture(ctx, "/api/camera_proxy/"+id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		// the detail can carry HA's internal URL: log it, don't echo it
+		log.Printf("camera %s from %s: %v", id, r.RemoteAddr, err)
+		http.Error(w, "map camera unavailable", http.StatusBadGateway)
 		return
 	}
 	if ctype == "" {

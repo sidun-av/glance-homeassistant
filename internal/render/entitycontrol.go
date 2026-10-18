@@ -313,11 +313,11 @@ const entityControlScript = `;(function(img){
 	// nothing on most robots), flipping data-activity at once; the poller
 	// reconciles it after the hold. The popover has the status line,
 	// Start/Pause, Dock, Locate, suction chips and the map from the same
-	// device's camera, fetched through the widget server (cameraUrl) as a
-	// blob so a refresh never flashes an empty box; it refreshes every
-	// VAC_MAP_REFRESH_MS while the robot is out (cleaning/returning).
-	// window.URL, not URL: inside an onerror attribute handler, bare names
-	// resolve against the document first, and document.URL is a string.
+	// device's camera, proxied by the widget server (cameraUrl). Each
+	// refresh preloads into a new Image and swaps it in on load, so the box
+	// never flashes empty — and, being a plain image, needs no CORS on
+	// /camera. It refreshes every VAC_MAP_REFRESH_MS while the robot is out
+	// (cleaning/returning) and the tab is visible.
 	var VAC_LABELS={cleaning:'Cleaning',returning:'Returning to dock',docked:'Docked',paused:'Paused',idle:'Idle',error:'Error'};
 	var FAN_LABELS={closed:'Off',off:'Off'};
 	var VAC_MAP_REFRESH_MS=10000;
@@ -337,10 +337,12 @@ const entityControlScript = `;(function(img){
 		post(action,tile.dataset.entityId,data).catch(function(err){if(next){setActivity(tile,was);delete tile.dataset.holdUntil;}showErr(err.message);});
 	}
 	function vacuumRun(tile){if(vacRunning(tile.dataset))vacuumCmd(tile,'pause','paused');else vacuumCmd(tile,'start','cleaning');}
-	// tap: an error needs a look first, so it opens the popover instead
+	// tap: a robot in error (or one HA can't reach) needs a look first, so
+	// it opens the popover instead of sending start
 	function tapTile(tile){
 		if(tile.dataset.domain!=='vacuum'){toggleTile(tile);return;}
-		if(tile.dataset.activity==='error'){openPopover(tile);return;}
+		var a=tile.dataset.activity;
+		if(a==='error'||a==='unavailable'||a==='unknown'){openPopover(tile);return;}
 		vacuumRun(tile);
 	}
 	function buildVacPanel(tile){
@@ -370,27 +372,33 @@ const entityControlScript = `;(function(img){
 		var dock=panel.querySelector('[data-vac="dock"]');if(dock)dock.disabled=d.activity==='docked'||d.activity==='returning';
 		panel.querySelectorAll('[data-fan-speed]').forEach(function(c){c.dataset.on=String(c.dataset.fanSpeed===d.fanSpeed);});
 	}
-	var vacTimer=null,vacObs=null,mapObjUrl=null;
+	var vacTimer=null,vacObs=null;
 	function loadMap(panel,tile){
 		var box=panel.querySelector('.ha-pop-map');if(!box)return;
-		var u=cameraUrl+(cameraUrl.indexOf('?')<0?'?':'&')+'entity_id='+encodeURIComponent(tile.dataset.mapCamera);
-		fetch(u,{cache:'no-store',credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob();}).then(function(b){
+		// t= makes every refresh a new URL, so the browser's image cache
+		// can't hand back the previous frame
+		var u=cameraUrl+(cameraUrl.indexOf('?')<0?'?':'&')+'entity_id='+encodeURIComponent(tile.dataset.mapCamera)+'&t='+Date.now();
+		var next=new Image();next.alt='Map of the last clean';
+		next.onload=function(){
 			if(pop!==panel)return;
-			if(mapObjUrl)window.URL.revokeObjectURL(mapObjUrl);
-			mapObjUrl=window.URL.createObjectURL(b);
-			var img=box.querySelector('img');img.onload=function(){box.dataset.state='ok';};img.src=mapObjUrl;
-		}).catch(function(){if(pop===panel&&box.dataset.state!=='ok'){box.dataset.state='error';box.querySelector('.ha-pop-map-msg').textContent='Map unavailable';}});
+			var cur=box.querySelector('img');if(cur)box.replaceChild(next,cur);else box.insertBefore(next,box.firstChild);
+			box.dataset.state='ok';
+		};
+		next.onerror=function(){if(pop===panel&&box.dataset.state!=='ok'){box.dataset.state='error';box.querySelector('.ha-pop-map-msg').textContent='Map unavailable';}};
+		next.src=u;
 	}
 	function startVac(panel,tile){
 		loadMap(panel,tile);
-		vacTimer=setInterval(function(){if(vacRunning(tile.dataset))loadMap(panel,tile);},VAC_MAP_REFRESH_MS);
+		vacTimer=setInterval(function(){
+			if(!root.isConnected){closePopover();return;}
+			if(!document.hidden&&vacRunning(tile.dataset))loadMap(panel,tile);
+		},VAC_MAP_REFRESH_MS);
 		vacObs=new MutationObserver(function(){refreshVac(panel,tile);});
 		vacObs.observe(tile,{attributes:true,attributeFilter:['data-activity','data-battery','data-fan-speed']});
 	}
 	function stopVac(){
 		if(vacTimer){clearInterval(vacTimer);vacTimer=null;}
 		if(vacObs){vacObs.disconnect();vacObs=null;}
-		if(mapObjUrl){window.URL.revokeObjectURL(mapObjUrl);mapObjUrl=null;}
 	}
 
 	var timers={};
