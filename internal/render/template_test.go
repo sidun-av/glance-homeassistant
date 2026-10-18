@@ -540,7 +540,6 @@ func TestEntityControlScript_VacuumWiring(t *testing.T) {
 		`root.dataset.cameraUrl`,
 		`VAC_MAP_REFRESH_MS=10000`,
 		`new Image()`,
-		`a==='unavailable'`,
 		`document.hidden`,
 		`root.isConnected`,
 	} {
@@ -551,6 +550,26 @@ func TestEntityControlScript_VacuumWiring(t *testing.T) {
 	for _, want := range []string{`.ha-pop-vac{`, `.ha-pop-map{`, `.ha-pop-act{`} {
 		if !strings.Contains(entityControlCSS, want) {
 			t.Errorf("entityControlCSS missing %q", want)
+		}
+	}
+}
+
+// TestEntityControlScript_VacuumTapOpensPopover pins that a tap on a vacuum
+// tile sends nothing: a stray tap must not start a clean, so tapTile only
+// opens the popover (whose buttons send start/pause/dock).
+func TestEntityControlScript_VacuumTapOpensPopover(t *testing.T) {
+	start := strings.Index(entityControlScript, "function tapTile(tile){")
+	if start < 0 {
+		t.Fatal("entityControlScript has no tapTile")
+	}
+	body := entityControlScript[start:]
+	body = body[:strings.Index(body, "\n\t}")]
+	if !strings.Contains(body, `tile.dataset.domain==='vacuum'){openPopover(tile);return;}`) {
+		t.Errorf("tapTile does not open the popover for a vacuum: %s", body)
+	}
+	for _, bad := range []string{"vacuumRun", "vacuumCmd", "post("} {
+		if strings.Contains(body, bad) {
+			t.Errorf("tapTile sends a vacuum command (%q): %s", bad, body)
 		}
 	}
 }

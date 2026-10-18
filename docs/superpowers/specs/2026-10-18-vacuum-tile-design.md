@@ -8,7 +8,7 @@ The floorplan already draws a vacuum as a plain device icon, and a tap sends
 `homeassistant.toggle` — which does nothing on vacuums that don't advertise
 `TURN_ON`/`TURN_OFF` (most modern ones only have start/pause/return). The owner
 wants the robot to read as a robot vacuum on the map: what it is doing, its
-battery, one-tap start/pause, dock, suction, and the last map with the route it
+battery, start/pause, dock, suction, and the last map with the route it
 drove.
 
 ## Goals
@@ -17,8 +17,10 @@ drove.
    docked (with battery), paused, error (red). Battery comes from the entity's
    `battery_level` attribute or, failing that, a `sensor` with
    `device_class: battery` on the same HA device.
-2. Tap = start when docked/idle/paused, pause when cleaning or returning. Long-press
-   opens the popover.
+2. ~~Tap = start when docked/idle/paused, pause when cleaning or returning.~~
+   Amended after review: a tap opens the popover and sends nothing (a stray tap
+   must not start a clean or stop a robot on its way home); Start/Pause live in
+   the popover. Long-press opens it as well.
 3. Popover: status + battery line, buttons Start/Pause (one, by state), Dock,
    Locate (when supported), a suction selector from `fan_speed_list`, and the
    map image from a `camera` entity on the same HA device (the integration's map

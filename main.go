@@ -662,8 +662,9 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 // (light.turn_on with the matching service data); set_temperature is
 // climate-only (climate.set_temperature). vacuum has no toggle: most robots
 // don't advertise TURN_ON/TURN_OFF, so homeassistant.toggle does nothing on
-// them — a tile tap sends start or pause instead, and set_fan_speed only
-// passes a speed from the entity's own fan_speed_list. media_player is deliberately
+// them — the popover sends start/pause/return_to_base instead (a tile tap
+// only opens it), and set_fan_speed only passes a speed from the entity's
+// own fan_speed_list. media_player is deliberately
 // absent — it already has its own dedicated Now-playing controls (see
 // mediaHandler), and routing its device tile through a generic toggle would
 // give it a second, conflicting way to be controlled.

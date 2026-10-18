@@ -75,9 +75,9 @@ With a `public_url` set, the map is interactive (mouse or touch):
 
 - **Tap** a light or device tile to toggle it (`homeassistant.toggle`; the tile flips at once
   and reconciles with HA on the next poll).
-  A vacuum instead starts (docked/idle/paused) or pauses (cleaning/returning); one in error opens
-  its controls.
-- **Long-press** (½ s) to open its controls:
+  A vacuum never acts on a tap: a tap opens its controls (below), so a stray touch can't start a
+  clean.
+- **Long-press** (½ s) to open its controls (for a vacuum a plain tap does the same):
   - light — brightness, colour temperature and colour swatches, whichever `supported_color_modes`
     allows;
   - fan — speed, preset modes (e.g. straight / natural wind), oscillation;

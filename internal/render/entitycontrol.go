@@ -85,8 +85,8 @@ const entityControlCSS = `
 //
 // Click vs. long-press is decided with pointer events (unifies mouse and
 // touch — this widget is as likely to run on a wall-mounted touchscreen as
-// a desktop browser): a short tap toggles the entity (a vacuum: start or
-// pause, see tapTile); holding for
+// a desktop browser): a short tap toggles the entity (a vacuum opens its
+// popover instead, see tapTile); holding for
 // LONG_PRESS_MS opens the popover for entities that have one; movement past
 // MOVE_TOLERANCE cancels both, so a scroll starting on a tile is never
 // mistaken for a press. Only the primary mouse button counts, and the
@@ -309,9 +309,11 @@ const entityControlScript = `;(function(img){
 		panel.style.top=Math.max(8,y)+'px';
 	}
 
-	// Robot vacuum. A tap sends start or pause (homeassistant.toggle does
-	// nothing on most robots), flipping data-activity at once; the poller
-	// reconciles it after the hold. The popover has the status line,
+	// Robot vacuum. A tap opens the popover and never sends a command: a
+	// stray tap (or a scroll that ends as one) must not start a clean, and
+	// a robot can't be "toggled" back the way a light can. Its buttons flip
+	// data-activity at once; the poller reconciles it after the hold. The
+	// popover has the status line,
 	// Start/Pause, Dock, Locate, suction chips and the map from the same
 	// device's camera, proxied by the widget server (cameraUrl). Each
 	// refresh preloads into a new Image and swaps it in on load, so the box
@@ -337,13 +339,11 @@ const entityControlScript = `;(function(img){
 		post(action,tile.dataset.entityId,data).catch(function(err){if(next){setActivity(tile,was);delete tile.dataset.holdUntil;}showErr(err.message);});
 	}
 	function vacuumRun(tile){if(vacRunning(tile.dataset))vacuumCmd(tile,'pause','paused');else vacuumCmd(tile,'start','cleaning');}
-	// tap: a robot in error (or one HA can't reach) needs a look first, so
-	// it opens the popover instead of sending start
+	// tap: a vacuum opens its popover (Start/Pause/Dock live there); every
+	// other tile toggles
 	function tapTile(tile){
-		if(tile.dataset.domain!=='vacuum'){toggleTile(tile);return;}
-		var a=tile.dataset.activity;
-		if(a==='error'||a==='unavailable'||a==='unknown'){openPopover(tile);return;}
-		vacuumRun(tile);
+		if(tile.dataset.domain==='vacuum'){openPopover(tile);return;}
+		toggleTile(tile);
 	}
 	function buildVacPanel(tile){
 		var d=tile.dataset,panel=document.createElement('div');
