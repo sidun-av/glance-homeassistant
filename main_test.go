@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -946,5 +947,49 @@ func TestNewMux_HousePageUsesPublicURL(t *testing.T) {
 			!strings.Contains(rec.Body.String(), `{"host":"/ha-widget/house","lang":"ru","embed":true}`) {
 			t.Errorf("%s: %d %s", path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// The Plan | 3D switch appears only once public_url is set and a plan has
+// been uploaded; before that the widget is exactly what it was.
+func TestWidgetHandler_HouseSwitchNeedsPlanAndPublicURL(t *testing.T) {
+	ha := fakeHAServer(t)
+	defer ha.Close()
+	const plan = `{"rooms":[{"id":"living","name":"Living"}],"lights":[{"id":"living.lamp","room":"living","link":{"service":"homeassistant","id":"light.demo_lamp"}}]}`
+	for _, tc := range []struct {
+		name      string
+		publicURL string
+		upload    bool
+		want      string // "" = no switch
+	}{
+		{"no plan", "/ha-widget", false, ""},
+		{"plan, path public_url", "/ha-widget/", true, `data-house-url="/ha-widget/house/"`},
+		{"plan, origin public_url", "https://dash.example.invalid/ha", true, `data-house-url="https://dash.example.invalid/ha/house/"`},
+		{"plan, no public_url", "", true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(ha.URL)
+			cfg.PublicURL = tc.publicURL
+			cfg.House.PlanFile = filepath.Join(t.TempDir(), "house-plan.json")
+			cfg.House.Lang = "ru"
+			a := newApp(cfg)
+			if tc.upload {
+				if _, err := a.house.Save([]byte(plan)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rec := httptest.NewRecorder()
+			newMux(cfg, a).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/widget", nil))
+			body := rec.Body.String()
+			if tc.want == "" {
+				if strings.Contains(body, "ha-house") {
+					t.Errorf("widget has house markup")
+				}
+				return
+			}
+			if !strings.Contains(body, tc.want) || !strings.Contains(body, ">План<") {
+				t.Errorf("widget lacks %s / the Russian switch", tc.want)
+			}
+		})
 	}
 }

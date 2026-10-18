@@ -215,6 +215,10 @@ type WidgetData struct {
 	LiveURL         string
 	PollIntervalMS  int
 	PauseWhenHidden bool
+	// HouseURL is where the 3D view's page is (<public_url>/house/); ""
+	// means no Plan | 3D switch, no Dock invite and no 3D (see house.go).
+	HouseURL string
+	Lang     string // HOUSE_LANG: "en" (default) or "ru", for the switch and the invite
 }
 
 // chartCSS is a near-literal port of Glance's own static/css/widget-weather.css
@@ -433,6 +437,9 @@ const bootstrapScript = `(function(img){var root=img.closest('.ha-widget');if(!r
 func RenderWidget(data WidgetData) string {
 	var b strings.Builder
 	b.WriteString(styleBlock(data.CardMinHeight))
+	if data.HouseURL != "" {
+		b.WriteString("<style>" + houseCSS + "</style>")
+	}
 
 	pauseAttr := "false"
 	if data.PauseWhenHidden {
@@ -441,7 +448,16 @@ func RenderWidget(data WidgetData) string {
 	fmt.Fprintf(&b, `<div class="ha-widget ha-body" data-live-url="%s" data-poll-ms="%d" data-pause-hidden="%s" data-entity-url="%s" data-temp-url="%s" data-camera-url="%s">`,
 		html.EscapeString(data.LiveURL), data.PollIntervalMS, pauseAttr, html.EscapeString(data.EntityURL), html.EscapeString(data.TemperatureURL), html.EscapeString(data.CameraURL))
 
-	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span><span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
+	var house houseCopy
+	switchHTML := ""
+	if data.HouseURL != "" {
+		house = houseStrings(data.Lang)
+		switchHTML = renderHouseSwitch(house)
+	}
+	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span>` + switchHTML + `<span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
+	if data.HouseURL != "" {
+		b.WriteString(renderHouseParts(data.HouseURL, house))
+	}
 
 	if data.Layout == "floorplan" && data.Floorplan != nil {
 		if data.EditURL != "" {
@@ -458,7 +474,11 @@ func RenderWidget(data WidgetData) string {
 		b.WriteString(`</div>`)
 	}
 
-	fmt.Fprintf(&b, `<img src="x" alt="" style="display:none;width:0;height:0" onerror="%s">`, html.EscapeString(bootstrapScript+entityControlScript+tempChartScript))
+	script := bootstrapScript + entityControlScript + tempChartScript
+	if data.HouseURL != "" {
+		script += houseScript
+	}
+	fmt.Fprintf(&b, `<img src="x" alt="" style="display:none;width:0;height:0" onerror="%s">`, html.EscapeString(script))
 	b.WriteString(`</div>`)
 
 	return b.String()

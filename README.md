@@ -192,6 +192,12 @@ screens (600 px or less), which open on **Plan**. The choice is remembered per b
 good in that browser. Without an uploaded plan the widget looks exactly as before: no switch, no
 card.
 
+Glance builds a page once, when it loads, and does not re-render widgets while the page stays open,
+so the 3D view keeps running (and keeps its camera and selection) until you reload the page or
+pick **Plan**. The widget's own live updates never touch it. One exception is Glance's
+`split-column` widget: it re-arranges its children when its column count changes on resize, which
+reloads an iframe inside it.
+
 **What the 3D view controls.** Only devices that the plan links to Home Assistant, with a domain
 that fits their kind: lights are `light.*` or `switch.*`, an AC is `climate.*`, a vacuum is
 `vacuum.*`. Every other device is dropped from the served plan: unlinked ones, devices on another
@@ -427,3 +433,10 @@ fit on one screen).
 go test ./...
 docker build -t glance-homeassistant:dev .
 ```
+
+`GLANCE_HA_DEVSERVER=:8099 go test -run TestDevServer -timeout 0 .` runs the server against a fake
+Home Assistant with a demo home and a stored House Control plan (no real Home Assistant involved);
+open `http://localhost:8099/harness` (`?theme=light` for the light palette) to see the widget
+mounted the way Glance mounts it. Set `GLANCE_HA_DEVSERVER_CSS` to a directory holding Glance's
+stylesheets for a closer look, and `GLANCE_HA_DEVSERVER_LANG=en` for English. Some tests run
+`node` when it is installed and skip otherwise.

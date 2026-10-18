@@ -152,7 +152,7 @@ func (a *app) Preview(l *layout.Layout) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	html, err := a.widgetHTML(ctx, fp, "")
+	html, err := a.widgetHTML(ctx, fp, "", "")
 	if err != nil {
 		return "", err
 	}
@@ -221,6 +221,16 @@ func containsStr(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// houseURL is where the widget's 3D view points its iframe: the House
+// Control page under public_url. "" (no switch) until public_url is set
+// and a plan has been uploaded.
+func (a *app) houseURL() string {
+	if a.cfg.PublicURL == "" || a.house.Current() == nil {
+		return ""
+	}
+	return strings.TrimRight(a.cfg.PublicURL, "/") + "/house/"
 }
 
 func liveURL(publicURL string) string {
@@ -996,7 +1006,7 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Widget-Title", a.cfg.Title)
 	w.Header().Set("Widget-Content-Type", "html")
 
-	html, err := a.widgetHTML(ctx, a.currentFloorplan(), editURL(a.cfg.PublicURL))
+	html, err := a.widgetHTML(ctx, a.currentFloorplan(), editURL(a.cfg.PublicURL), a.houseURL())
 	if err != nil {
 		log.Printf("home assistant unavailable: %v", err)
 		html = render.RenderUnavailable()
@@ -1007,8 +1017,9 @@ func (a *app) widgetHandler(w http.ResponseWriter, r *http.Request) {
 
 // widgetHTML renders the widget for a given floorplan (nil = cards
 // layout / config default). The editor's preview calls it with an
-// unsaved layout.
-func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref string) (string, error) {
+// unsaved layout and no 3D view. houseHref "" leaves out the Plan | 3D
+// switch.
+func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref, houseHref string) (string, error) {
 	cards, media, err := a.buildModelWithMedia(ctx)
 	if err != nil {
 		return "", err
@@ -1197,6 +1208,8 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		LiveURL:         liveURL(a.cfg.PublicURL),
 		PollIntervalMS:  int(pollInterval.Milliseconds()),
 		PauseWhenHidden: a.cfg.Live.PauseWhenHidden != nil && *a.cfg.Live.PauseWhenHidden,
+		HouseURL:        houseHref,
+		Lang:            a.cfg.House.Lang,
 	}
 
 	return render.RenderWidget(widgetData), nil
