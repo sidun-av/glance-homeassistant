@@ -505,6 +505,30 @@ func TestLoadConfig_DevicesDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_MapCameras(t *testing.T) {
+	path := writeTempConfig(t, "home_assistant:\n  url: http://x\n  token: t\ndevices:\n  map_cameras:\n    vacuum.robot: image.robot_map\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Devices.MapCameras["vacuum.robot"] != "image.robot_map" {
+		t.Errorf("map_cameras = %v", cfg.Devices.MapCameras)
+	}
+	t.Setenv("DEVICES_MAP_CAMERAS", "vacuum.a=camera.a_map, vacuum.b = image.b_map")
+	if cfg, err = LoadConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Devices.MapCameras) != 2 || cfg.Devices.MapCameras["vacuum.b"] != "image.b_map" {
+		t.Errorf("env not applied: %v", cfg.Devices.MapCameras)
+	}
+	for _, bad := range []string{"vacuum.a=sensor.a", "camera.a=camera.b", "vacuum.a"} {
+		t.Setenv("DEVICES_MAP_CAMERAS", bad)
+		if _, err := LoadConfig(path); err == nil {
+			t.Errorf("DEVICES_MAP_CAMERAS=%q accepted", bad)
+		}
+	}
+}
+
 func contains(list []string, v string) bool {
 	for _, x := range list {
 		if x == v {

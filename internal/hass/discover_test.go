@@ -355,7 +355,8 @@ func TestBuildModel_VacuumFields(t *testing.T) {
 		"camera.robot_cam":     {Domain: "camera", State: "idle"},
 		"camera.robot_map":     {Domain: "camera", State: "idle"},
 		// battery_level on the entity wins over the sibling sensor; an
-		// unavailable camera is no map
+		// unavailable camera is still its map (availability is checked when
+		// the popover fetches it, not when the page renders)
 		"vacuum.other":         {EntityID: "vacuum.other", Domain: "vacuum", State: "docked", BatteryLevel: &bat, SupportedFeatures: 8192},
 		"sensor.other_battery": {Domain: "sensor", State: "12", DeviceClass: "battery"},
 		"camera.other_map":     {Domain: "camera", State: "unavailable"},
@@ -378,8 +379,48 @@ func TestBuildModel_VacuumFields(t *testing.T) {
 	}
 	o := by["vacuum.other"]
 	if o.On || o.Effect != "vacuum" || o.Activity != "docked" || o.Battery == nil || *o.Battery != 64 ||
-		!o.SupportsStart || o.SupportsPause || o.SupportsReturn || o.SupportsLocate || o.MapCamera != "" {
+		!o.SupportsStart || o.SupportsPause || o.SupportsReturn || o.SupportsLocate || o.MapCamera != "camera.other_map" {
 		t.Errorf("vacuum.other = %+v", o)
+	}
+}
+
+func TestBuildModel_VacuumMapCameraChoice(t *testing.T) {
+	rooms := []Room{{Name: "Hall", EntityIDs: []string{"vacuum.a", "vacuum.b", "vacuum.c", "vacuum.d"},
+		Devices: []DeviceGroup{
+			{Name: "A", EntityIDs: []string{"vacuum.a", "camera.a_front", "camera.a_floor"}},
+			{Name: "B", EntityIDs: []string{"vacuum.b", "sensor.b_area", "image.b_map"}},
+			{Name: "C", EntityIDs: []string{"vacuum.c", "camera.c_map"}},
+			{Name: "D", EntityIDs: []string{"vacuum.d", "camera.d_map"}},
+		}}}
+	states := map[string]EntityState{
+		"vacuum.a":       {EntityID: "vacuum.a", Domain: "vacuum", State: "docked"},
+		"vacuum.b":       {EntityID: "vacuum.b", Domain: "vacuum", State: "docked"},
+		"vacuum.c":       {EntityID: "vacuum.c", Domain: "vacuum", State: "docked"},
+		"vacuum.d":       {EntityID: "vacuum.d", Domain: "vacuum", State: "docked"},
+		"camera.a_front": {Domain: "camera", State: "idle"}, "camera.a_floor": {Domain: "camera", State: "idle"},
+		"sensor.b_area": {Domain: "sensor", State: "3"}, "image.b_map": {Domain: "image", State: "2026-10-18T10:00:00"},
+		"camera.c_map": {Domain: "camera", State: "idle"}, "camera.c_live": {Domain: "camera", State: "idle"},
+		"camera.d_map": {Domain: "camera", State: "idle"},
+	}
+	cfg := defaultClassificationConfig()
+	cfg.DeviceDomains = []string{"vacuum"}
+	// c: configured explicitly, even off its own device; d: configured to an
+	// entity HA doesn't have, so the device's own map is used
+	cfg.MapCameras = map[string]string{"vacuum.c": "camera.c_live", "vacuum.d": "camera.gone"}
+	by := map[string]string{}
+	for _, d := range BuildModel(rooms, states, cfg)[0].Devices {
+		by[d.EntityID] = d.MapCamera
+	}
+	want := map[string]string{
+		"vacuum.a": "camera.a_front", // no "map" in any id: the first camera
+		"vacuum.b": "image.b_map",    // image.* entities count too
+		"vacuum.c": "camera.c_live",
+		"vacuum.d": "camera.d_map",
+	}
+	for id, w := range want {
+		if by[id] != w {
+			t.Errorf("%s map = %q, want %q", id, by[id], w)
+		}
 	}
 }
 

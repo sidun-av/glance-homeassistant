@@ -29,6 +29,10 @@ type Config struct {
 type DevicesConfig struct {
 	Domains []string `yaml:"domains"` // env: DEVICES_DOMAINS
 	Exclude []string `yaml:"exclude"` // env: DEVICES_EXCLUDE — entity_ids to skip
+	// MapCameras pins a vacuum's map to a camera.* or image.* entity
+	// (vacuum entity_id → map entity_id); a vacuum not listed falls back to
+	// a camera/image of the same HA device (see hass.deviceMapCamera).
+	MapCameras map[string]string `yaml:"map_cameras"` // env: DEVICES_MAP_CAMERAS — vacuum.x=camera.y,vacuum.z=image.w
 }
 
 type FloorplanConfig struct {
@@ -110,6 +114,15 @@ func LoadConfig(path string) (*Config, error) {
 		// "switch" is deliberately not here: in practice most switches are a
 		// light's second channel or a config toggle; opt in per install.
 		cfg.Devices.Domains = []string{"fan", "climate", "humidifier", "water_heater", "media_player", "vacuum", "cover", "lock"}
+	}
+
+	for vac, cam := range cfg.Devices.MapCameras {
+		if !strings.HasPrefix(vac, "vacuum.") {
+			return nil, fmt.Errorf("devices.map_cameras key %q must be a vacuum.* entity_id", vac)
+		}
+		if !strings.HasPrefix(cam, "camera.") && !strings.HasPrefix(cam, "image.") {
+			return nil, fmt.Errorf("devices.map_cameras[%s] = %q must be a camera.* or image.* entity_id", vac, cam)
+		}
 	}
 
 	if cfg.HomeAssistant.URL == "" {
@@ -255,6 +268,17 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("DEVICES_EXCLUDE"); ok {
 		cfg.Devices.Exclude = splitEnvList(v)
+	}
+	if v, ok := lookupNonEmptyEnv("DEVICES_MAP_CAMERAS"); ok {
+		cams := map[string]string{}
+		for _, pair := range splitEnvList(v) {
+			vac, cam, found := strings.Cut(pair, "=")
+			if !found {
+				return fmt.Errorf("env DEVICES_MAP_CAMERAS entry %q must be vacuum.x=camera.y", pair)
+			}
+			cams[strings.TrimSpace(vac)] = strings.TrimSpace(cam)
+		}
+		cfg.Devices.MapCameras = cams
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT_FILE"); ok {
 		cfg.LayoutFile = v

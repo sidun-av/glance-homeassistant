@@ -83,7 +83,7 @@ With a `public_url` set, the map is interactive (mouse or touch):
   - fan — speed, preset modes (e.g. straight / natural wind), oscillation;
   - climate — target temperature (−/+ and a slider) and HVAC mode; water heater — target;
   - vacuum — status and battery, Start/Pause, Dock, Locate (each as its `supported_features` allow), suction from its
-    `fan_speed_list`, and the map with the route from the camera of the same HA device (refreshed
+    `fan_speed_list`, and the map with the route (see "Vacuum map" below; refreshed
     every 10 s while cleaning or returning and once more when the run ends; a refresh that fails
     dims the last map and marks it "Map not updated");
   - plus the device's other controls: every `select` (chips), `number` (slider) and `switch` of the
@@ -99,8 +99,18 @@ All of it goes through this service, never straight to HA: `POST <public_url>/en
 (`select`/`number`/`switch` only for entities the map actually shows), and
 `GET <public_url>/temperature?room=<Area>` serves the chart's 15-minute series. A vacuum's map comes
 through `GET <public_url>/camera?entity_id=camera.…`, which serves only the map camera of a vacuum
-on the map (HA's `camera_proxy` with this service's token, so the browser never needs it). Media players are
-controlled from the Now playing panel instead.
+on the map (HA's `camera_proxy`, or `image_proxy` for an `image.…` entity, with this service's
+token, so the browser never needs it). Media players are controlled from the Now playing panel
+instead.
+
+**Vacuum map.** The map entity is `devices.map_cameras[<vacuum>]` when set (a `camera.…` or
+`image.…` entity — use it when the guess below is wrong). Otherwise it is a `camera.…` or `image.…`
+entity of the vacuum's own HA device: the one whose entity_id contains `map` if there are
+several, else the first. That is a naming heuristic — most integrations call it
+`camera.<robot>_map` or `image.<robot>_map`, but not all; a robot with several cameras and no
+`map` in any id gets the first one. No entity on the device and nothing configured means no map
+in the popover. The entity is picked whether or not it is available at the time; if HA can't
+serve it, the popover says "Map unavailable".
 
 ### Now playing
 
@@ -262,6 +272,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `TEMPERATURE_CHART_STYLE` | `temperature.chart_style` | `bars` | `bars` (WEATHER-widget bar chart) or `sparkline` |
 | `DEVICES_DOMAINS` | `devices.domains` | `fan,climate,humidifier,water_heater,media_player,vacuum,cover,lock` | HA domains that get a device tile (floorplan). Add `switch` to opt in. |
 | `DEVICES_EXCLUDE` | `devices.exclude` | — | entity_ids to skip even if their domain is listed |
+| `DEVICES_MAP_CAMERAS` | `devices.map_cameras` | — (auto) | `vacuum.x=camera.y,vacuum.z=image.w` — which entity a vacuum's popover map comes from |
 | `LAYOUT` | `layout` | `cards` | `cards` or `floorplan` (see "Floorplan layout") |
 | `LAYOUT_FILE` | `layout_file` | `/data/floorplan.json` | where the browser editor saves the floorplan |
 | `FLOORPLAN_GRID` | `floorplan.grid` | — | rows joined with `;`, e.g. `bedroom bedroom kitchen;bath hall kitchen` |

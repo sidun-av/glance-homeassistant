@@ -462,6 +462,7 @@ func (a *app) buildModelWithMedia(ctx context.Context) ([]hass.RoomCard, []rende
 		MotionDeviceClasses:  a.cfg.Sensors.MotionDeviceClasses,
 		DeviceDomains:        a.cfg.Devices.Domains,
 		DeviceExclude:        a.cfg.Devices.Exclude,
+		MapCameras:           a.cfg.Devices.MapCameras,
 	})
 	a.recordControls(cards)
 	players := hass.BuildMediaPlayers(rooms, states)
@@ -560,9 +561,10 @@ func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-// cameraHandler proxies a vacuum's map camera (HA's camera_proxy, which
-// needs the HA token) for the vacuum popover. Only a camera of the same HA
-// device as a vacuum tile on the map is served — not any camera in HA.
+// cameraHandler proxies a vacuum's map (HA's camera_proxy for a camera.*,
+// image_proxy for an image.* entity; both need the HA token) for the
+// vacuum popover. Only the map entity of a vacuum tile on the map is served
+// (see hass.deviceMapCamera) — not any camera in HA.
 // no-store: the map changes as the robot drives, and the popover refetches
 // it while cleaning. Deliberately no CORS header (like /art): the popover
 // loads it as a plain <img>, and with one any web page open in the browser
@@ -571,11 +573,18 @@ func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("entity_id")
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	if !strings.HasPrefix(id, "camera.") || !a.isMapCamera(ctx, id) {
+	proxy := "/api/camera_proxy/"
+	if strings.HasPrefix(id, "image.") {
+		proxy = "/api/image_proxy/"
+	} else if !strings.HasPrefix(id, "camera.") {
 		http.NotFound(w, r)
 		return
 	}
-	body, ctype, err := a.client.FetchPicture(ctx, "/api/camera_proxy/"+id)
+	if !a.isMapCamera(ctx, id) {
+		http.NotFound(w, r)
+		return
+	}
+	body, ctype, err := a.client.FetchPicture(ctx, proxy+id)
 	if err != nil {
 		// the detail can carry HA's internal URL: log it, don't echo it
 		log.Printf("camera %s from %s: %v", id, r.RemoteAddr, err)

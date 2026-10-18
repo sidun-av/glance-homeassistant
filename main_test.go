@@ -793,6 +793,30 @@ func TestCameraHandler_OnlyAVacuumsMapCamera(t *testing.T) {
 	}
 }
 
+func TestCameraHandler_ImageEntityUsesImageProxy(t *testing.T) {
+	var hits []string
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/template":
+			fmt.Fprint(w, `[{"id":"hall","name":"Hall","entities":["vacuum.robot"],"devices":[{"name":"Robot","entities":["vacuum.robot","image.robot_map"]}]}]`)
+		case r.URL.Path == "/api/states":
+			fmt.Fprint(w, `[{"entity_id":"vacuum.robot","state":"docked","attributes":{}},{"entity_id":"image.robot_map","state":"unavailable","attributes":{}}]`)
+		default:
+			hits = append(hits, r.URL.Path)
+			w.Header().Set("Content-Type", "image/png")
+			fmt.Fprint(w, "PNGDATA")
+		}
+	}))
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	cfg.Devices.Domains = []string{"vacuum"}
+	rec := httptest.NewRecorder()
+	newMux(cfg, newApp(cfg)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/camera?entity_id=image.robot_map", nil))
+	if rec.Code != 200 || len(hits) != 1 || hits[0] != "/api/image_proxy/image.robot_map" {
+		t.Errorf("status %d, upstream %v", rec.Code, hits)
+	}
+}
+
 func TestCameraURL(t *testing.T) {
 	if got := cameraURL("/ha-widget/"); got != "/ha-widget/camera" {
 		t.Errorf("cameraURL = %q", got)

@@ -78,8 +78,8 @@ type Device struct {
 	// vacuum only. Activity is the entity's state (cleaning, returning,
 	// docked, paused, idle, error); Battery comes from battery_level or a
 	// battery sensor of the same device (nil when neither exists); MapCamera
-	// is the same device's camera entity, which the vacuum integrations use
-	// to draw the map and the route of the current or last clean. Supports*
+	// is the camera.* or image.* entity the vacuum integration draws the map
+	// and the route of the current or last clean on (see deviceMapCamera). Supports*
 	// come from supported_features: HA refuses a service the robot doesn't
 	// advertise, so the popover only offers the ones it does.
 	Activity       string
@@ -143,9 +143,23 @@ func deviceBattery(entityID string, st EntityState, room Room, states map[string
 	return nil
 }
 
-// deviceMapCamera picks the same-device camera a vacuum draws its map on:
-// one whose id mentions "map" if there are several, else the first.
-func deviceMapCamera(entityID string, room Room, states map[string]EntityState) string {
+// deviceMapCamera picks the entity a vacuum's map comes from:
+//
+//  1. the one configured for it (devices.map_cameras), if HA has it;
+//  2. else a camera.* or image.* entity of the same HA device — the one
+//     whose id mentions "map" if there are several (integrations name it
+//     that way, e.g. camera.<robot>_map), else the first in device order.
+//
+// Availability is deliberately not checked: it is a runtime matter (the
+// /camera proxy answers 502 and the popover says so), and filtering on it
+// would leave a page rendered while the camera was briefly unavailable
+// without a map until the next full reload.
+func deviceMapCamera(entityID string, room Room, states map[string]EntityState, configured map[string]string) string {
+	if id := configured[entityID]; id != "" {
+		if _, ok := states[id]; ok {
+			return id
+		}
+	}
 	group := deviceGroupOf(entityID, room)
 	if group == nil {
 		return ""
@@ -153,7 +167,7 @@ func deviceMapCamera(entityID string, room Room, states map[string]EntityState) 
 	first := ""
 	for _, id := range group.EntityIDs {
 		s, ok := states[id]
-		if !usable(s, ok) || s.Domain != "camera" {
+		if !ok || (s.Domain != "camera" && s.Domain != "image") {
 			continue
 		}
 		if strings.Contains(id, "map") {
@@ -280,6 +294,8 @@ type ClassificationConfig struct {
 	// really a light's second channel, a "do not disturb" toggle, ...).
 	DeviceDomains []string
 	DeviceExclude []string
+	// MapCameras: devices.map_cameras (vacuum entity_id → map entity_id).
+	MapCameras map[string]string
 }
 
 // DeviceEffect decides what a device visibly pushes into the room.
@@ -488,7 +504,7 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					f := state.SupportedFeatures
 					d.SupportsStart, d.SupportsPause = f&vacuumStart != 0, f&vacuumPause != 0
 					d.SupportsReturn, d.SupportsLocate = f&vacuumReturnHome != 0, f&vacuumLocate != 0
-					d.MapCamera = deviceMapCamera(entityID, room, states)
+					d.MapCamera = deviceMapCamera(entityID, room, states, cfg.MapCameras)
 				}
 				d.Extras = deviceExtras(entityID, room, states, cfg.DeviceExclude)
 				b.devices = append(b.devices, d)
