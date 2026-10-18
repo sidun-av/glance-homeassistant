@@ -384,15 +384,15 @@ const entityControlScript = `;(function(img){
 	// refreshVac re-reads the tile's data into an open vacuum panel (after a
 	// command, or when the poller changes data-activity/battery/fan-speed)
 	function refreshVac(panel,tile){
-		var d=tile.dataset,running=vacRunning(d);
+		var d=tile.dataset,running=vacRunning(d),gone=d.activity==='unavailable'||d.activity==='unknown';
 		var st=panel.querySelector('[data-out="vac-status"]');if(st){st.textContent=vacStatus(d);st.dataset.activity=d.activity||'';}
 		var run=panel.querySelector('[data-vac="run"]');
 		if(run){
 			run.innerHTML=running?ICON.pause+'Pause':ICON.play+'Start';run.dataset.on=String(running);
 			// HA refuses a service the robot doesn't advertise
-			run.disabled=(running?d.pause:d.start)!=='true';run.title=run.disabled?'Not supported by this robot':'';
+			run.disabled=gone||(running?d.pause:d.start)!=='true';run.title=gone?'':run.disabled?'Not supported by this robot':'';
 		}
-		var dock=panel.querySelector('[data-vac="dock"]');if(dock)dock.disabled=d.activity==='docked'||d.activity==='returning';
+		var dock=panel.querySelector('[data-vac="dock"]');if(dock)dock.disabled=d.activity==='docked'||d.activity==='returning'||gone;
 		panel.querySelectorAll('[data-fan-speed]').forEach(function(c){var on=c.dataset.fanSpeed===d.fanSpeed;c.dataset.on=String(on);c.setAttribute('aria-pressed',String(on));});
 	}
 	var vacTimer=null,vacObs=null,vacSettle=null;

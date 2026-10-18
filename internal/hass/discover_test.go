@@ -207,7 +207,7 @@ func TestBuildModel_OccupancyAttentionLabel(t *testing.T) {
 }
 
 func TestBuildModel_DevicesByDomainWithEffects(t *testing.T) {
-	rooms := []Room{{Name: "Office", EntityIDs: []string{"fan.desk", "climate.ac", "switch.heater_plug", "switch.child_lock", "media_player.tv", "vacuum.bot"}}}
+	rooms := []Room{{Name: "Office", EntityIDs: []string{"fan.desk", "climate.ac", "switch.heater_plug", "switch.child_lock", "media_player.tv", "vacuum.bot", "fan.gone"}}}
 	states := map[string]EntityState{
 		"fan.desk":           {EntityID: "fan.desk", Domain: "fan", State: "on", FriendlyName: "Desk fan"},
 		"climate.ac":         {EntityID: "climate.ac", Domain: "climate", State: "heat", HvacAction: "heating", FriendlyName: "AC", Icon: "mdi:air-conditioner"},
@@ -215,6 +215,7 @@ func TestBuildModel_DevicesByDomainWithEffects(t *testing.T) {
 		"switch.child_lock":  {EntityID: "switch.child_lock", Domain: "switch", State: "on", FriendlyName: "Child lock"},
 		"media_player.tv":    {EntityID: "media_player.tv", Domain: "media_player", State: "playing", FriendlyName: "TV"},
 		"vacuum.bot":         {EntityID: "vacuum.bot", Domain: "vacuum", State: "unavailable", FriendlyName: "Bot"},
+		"fan.gone":           {EntityID: "fan.gone", Domain: "fan", State: "unavailable", FriendlyName: "Gone"},
 	}
 	cfg := defaultClassificationConfig()
 	cfg.DeviceDomains = []string{"fan", "climate", "switch", "media_player", "vacuum"}
@@ -230,9 +231,10 @@ func TestBuildModel_DevicesByDomainWithEffects(t *testing.T) {
 		"climate.ac":         {true, "heat"},
 		"switch.heater_plug": {false, ""},
 		"media_player.tv":    {true, "music"},
+		"vacuum.bot":         {false, "vacuum"}, // unavailable, but a vacuum keeps its tile
 	}
 	if len(card.Devices) != len(want) {
-		t.Fatalf("devices = %+v, want %d (child_lock excluded, unavailable vacuum skipped)", card.Devices, len(want))
+		t.Fatalf("devices = %+v, want %d (child_lock excluded, unavailable fan skipped)", card.Devices, len(want))
 	}
 	for _, d := range card.Devices {
 		w, ok := want[d.EntityID]
@@ -244,8 +246,8 @@ func TestBuildModel_DevicesByDomainWithEffects(t *testing.T) {
 			t.Errorf("%s: on=%v effect=%q, want on=%v effect=%q", d.EntityID, d.On, d.Effect, w[0], w[1])
 		}
 	}
-	if card.Weight != 4 {
-		t.Errorf("weight = %d, want 4 (one per device)", card.Weight)
+	if card.Weight != 5 {
+		t.Errorf("weight = %d, want 5 (one per device)", card.Weight)
 	}
 }
 

@@ -601,7 +601,7 @@ func TestEntityControlScript_VacuumPopoverDetails(t *testing.T) {
 	for _, want := range []string{
 		`if(prev==null)delete tile.dataset.fanSpeed;else tile.dataset.fanSpeed=prev;`,
 		`d.battery!==undefined&&d.battery!==''`,
-		`run.disabled=(running?d.pause:d.start)!=='true'`,
+		`run.disabled=gone||(running?d.pause:d.start)!=='true'`,
 		`d.dock==='true'?`,
 		`panel.setAttribute('aria-label',name)`,
 		`aria-live="polite"`,

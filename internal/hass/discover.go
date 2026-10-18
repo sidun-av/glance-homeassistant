@@ -452,7 +452,11 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 				b.occupancy = append(b.occupancy, SensorEntity{Room: room.Name, Name: state.FriendlyName, Attention: attention, Label: label})
 
 			case contains(cfg.DeviceDomains, state.Domain) && !contains(cfg.DeviceExclude, entityID):
-				if state.State == "unavailable" || state.State == "unknown" {
+				// an unreachable device gets no tile — except a vacuum, which
+				// keeps its place and shows it is unreachable (data-activity,
+				// see floorplanCSS): a robot vanishing from /live.json would
+				// otherwise leave its tile frozen on the last state, e.g. docked
+				if (state.State == "unavailable" || state.State == "unknown") && state.Domain != "vacuum" {
 					continue
 				}
 				on, effect := DeviceEffect(state)
