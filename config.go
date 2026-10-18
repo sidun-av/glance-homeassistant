@@ -31,6 +31,8 @@ type Config struct {
 type HouseConfig struct {
 	PlanFile string `yaml:"plan_file"` // env: HOUSE_PLAN_FILE — where the uploaded plan is kept; default /data/house-plan.json
 	// Secret guards PUT /house/plan (a bearer token); empty disables uploads.
+	// Leading and trailing whitespace is dropped (a value read from a file
+	// with its newline, or pasted with a CR), as push.sh does on the Mac.
 	Secret string `yaml:"secret"` // env: HOUSE_PLAN_SECRET
 	Lang   string `yaml:"lang"`   // env: HOUSE_LANG — "en" (default) or "ru", for the switch, the invite and the 3D view
 }
@@ -169,6 +171,7 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.House.PlanFile == "" {
 		cfg.House.PlanFile = "/data/house-plan.json"
 	}
+	cfg.House.Secret = strings.TrimSpace(cfg.House.Secret)
 	if cfg.House.Lang == "" {
 		cfg.House.Lang = "en"
 	}

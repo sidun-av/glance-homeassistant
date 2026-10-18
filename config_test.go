@@ -583,6 +583,26 @@ house:
 	}
 }
 
+func TestLoadConfig_HouseSecretTrimmed(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+`)
+	t.Setenv("HOUSE_PLAN_SECRET", " s3cret\r\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.House.Secret != "s3cret" {
+		t.Errorf("Secret = %q, want the surrounding whitespace dropped", cfg.House.Secret)
+	}
+	t.Setenv("HOUSE_PLAN_SECRET", " \t\n")
+	if cfg, err = LoadConfig(path); err != nil || cfg.House.Secret != "" {
+		t.Errorf("all-whitespace secret: %q %v, want empty (uploads disabled)", cfg.House.Secret, err)
+	}
+}
+
 func TestLoadConfig_HouseLangInvalid(t *testing.T) {
 	path := writeTempConfig(t, `
 home_assistant:

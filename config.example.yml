@@ -37,7 +37,7 @@ devices:
 # public_url is set. Keep the secret out of this file if you can: env wins.
 house:
   plan_file: /data/house-plan.json   # env: HOUSE_PLAN_FILE — where the uploaded plan is kept
-  secret: ""   # env: HOUSE_PLAN_SECRET — bearer secret for uploads; empty = uploads disabled
+  secret: ""   # env: HOUSE_PLAN_SECRET — bearer secret for uploads; empty = uploads disabled; surrounding whitespace is ignored
   lang: en   # env: HOUSE_LANG — "en" or "ru": the switch, the Dock card and the 3D view
 
 layout: cards

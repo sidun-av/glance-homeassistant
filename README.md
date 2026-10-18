@@ -212,7 +212,8 @@ chmod 600 ~/.config/glance-house/secret
 tools/house-plan-push/install.sh            # --dry-run first shows what it would do
 ```
 
-Give the server the same secret as `HOUSE_PLAN_SECRET`. `install.sh` installs a user LaunchAgent.
+Give the server the same secret as `HOUSE_PLAN_SECRET`. Both sides ignore leading and trailing
+whitespace, such as the file's newline; `push.sh` refuses a secret with whitespace inside it. `install.sh` installs a user LaunchAgent.
 It runs `push.sh` when the plan file changes, every 5 minutes, and at login. Each run first asks
 the server (a plain `GET /house/plan` with `If-None-Match`) whether it already serves this exact
 plan, and sends it only when it does not, so a server that lost its plan (a recreated data volume,
