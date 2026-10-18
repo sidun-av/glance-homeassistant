@@ -118,9 +118,18 @@ func newTestHandler(t *testing.T, ha *fakeHA, withPlan bool) (*Handler, *http.Se
 	return h, mux
 }
 
+// lanPeer is the TCP peer of every test request unless a test says
+// otherwise: plan uploads are taken only from a private address.
+const lanPeer = "10.0.0.7:50123"
+
 func do(mux http.Handler, method, target string, body string, headers ...string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.RemoteAddr = lanPeer
 	for i := 0; i+1 < len(headers); i += 2 {
+		if headers[i] == "RemoteAddr" {
+			req.RemoteAddr = headers[i+1]
+			continue
+		}
 		req.Header.Set(headers[i], headers[i+1])
 	}
 	rec := httptest.NewRecorder()
@@ -189,6 +198,7 @@ func TestPlan_Put(t *testing.T) {
 		reason  string
 	}{
 		{"uploads disabled", "", good, []string{"Authorization", "Bearer "}, 403, "forbidden", ""},
+		{"public peer", testSecret, good, []string{"Authorization", auth, "RemoteAddr", "203.0.113.9:4000"}, 403, "forbidden", ""},
 		{"through the proxy", testSecret, good, []string{"Authorization", auth, "X-Forwarded-For", "1.2.3.4"}, 403, "forbidden", ""},
 		{"real ip header", testSecret, good, []string{"Authorization", auth, "X-Real-IP", "1.2.3.4"}, 403, "forbidden", ""},
 		{"forwarded header", testSecret, good, []string{"Authorization", auth, "Forwarded", "for=1.2.3.4"}, 403, "forbidden", ""},
@@ -242,6 +252,30 @@ func TestPlan_Put(t *testing.T) {
 			t.Errorf("DELETE = %d", rec.Code)
 		}
 	})
+}
+
+func TestPrivatePeer(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:1":         true,
+		"10.1.2.3:1":          true,
+		"172.16.0.1:1":        true,
+		"172.31.255.255:1":    true,
+		"192.168.0.10:1":      true,
+		"[::1]:1":             true,
+		"[fd12:3456::1]:1":    true,
+		"[::ffff:10.0.0.1]:1": true,
+		"172.32.0.1:1":        false,
+		"203.0.113.9:1":       false,
+		"[2001:db8::1]:1":     false,
+		"[fe80::1]:1":         false,
+		"169.254.1.1:1":       false,
+		"":                    false,
+		"not an address":      false,
+	} {
+		if got := privatePeer(addr); got != want {
+			t.Errorf("privatePeer(%q) = %v, want %v", addr, got, want)
+		}
+	}
 }
 
 func TestState_HAUnavailable(t *testing.T) {

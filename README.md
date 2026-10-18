@@ -245,8 +245,12 @@ container's own port.
 `PUT /house/plan` rules:
 
 - Uploads are disabled (403) while `HOUSE_PLAN_SECRET` is empty.
+- An upload is refused (403) unless the TCP peer has a private address: loopback, RFC 1918
+  (`10/8`, `172.16/12`, `192.168/16`) or IPv6 unique-local (`fc00::/7`). Behind Docker's port
+  publishing that is the LAN client or the Docker gateway.
 - An upload is refused (403) when it carries `X-Forwarded-For`, `X-Real-IP` or `Forwarded`. That
   means it came through a reverse proxy rather than straight over the LAN.
+- Both of these are defence in depth. The secret is the actual control, so keep it long and random.
 - The body must be at most 1 MiB and a JSON object with a non-empty `rooms` array.
 - No key at any depth may be named `token`, `accessToken`, `access_token`, `password` or `secret`.
 

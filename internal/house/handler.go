@@ -12,7 +12,9 @@ import (
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"sort"
 	"strings"
@@ -152,11 +154,17 @@ func etagMatches(header, etag string) bool {
 }
 
 // upload takes a plan from the owner's Mac. It is only for a request that
-// came straight over the LAN: the reverse proxy in front of the dashboard
-// adds forwarding headers, and anything carrying them is refused even with
-// the right secret.
+// came straight over the LAN: the TCP peer must have a private address,
+// and the reverse proxy in front of the dashboard adds forwarding headers,
+// so anything carrying them is refused even with the right secret. Both
+// are defence in depth; the secret is the control.
 func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	if h.Secret == "" {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if !privatePeer(r.RemoteAddr) {
+		log.Printf("house: plan upload refused: peer %s is not on a private network", r.RemoteAddr)
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
@@ -193,6 +201,21 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("house: plan saved (%d devices) from %s", len(p.Devices), r.RemoteAddr)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "etag": p.ETag})
+}
+
+// privatePeer is true for a loopback, RFC 1918 or IPv6 unique-local
+// (fc00::/7) address, IPv4-mapped forms included.
+func privatePeer(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsPrivate()
 }
 
 // bearerMatches compares in constant time (hashing first so that the
