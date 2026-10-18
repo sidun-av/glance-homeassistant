@@ -314,6 +314,80 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 	return states, nil
 }
 
+// RawState is one entity as /api/states reports it, with its attributes
+// left as decoded JSON (lists are []any, numbers float64) — for mappings
+// that read attributes the typed EntityState does not carry.
+type RawState struct {
+	EntityID   string         `json:"entity_id"`
+	State      string         `json:"state"`
+	Attributes map[string]any `json:"attributes"`
+}
+
+// FetchRawStates is FetchStates without the typing: every entity, keyed by
+// entity_id, with all of its attributes.
+func (c *Client) FetchRawStates(ctx context.Context) (map[string]RawState, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/states", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request states: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("states returned status %d", resp.StatusCode)
+	}
+	var raw []RawState
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("parse states response: %w", err)
+	}
+	out := make(map[string]RawState, len(raw))
+	for _, s := range raw {
+		if s.Attributes == nil {
+			s.Attributes = map[string]any{}
+		}
+		out[s.EntityID] = s
+	}
+	return out, nil
+}
+
+// maxTemplate caps a rendered template's answer.
+const maxTemplate = 4 << 20
+
+// RenderTemplate renders a Jinja template with POST /api/template and
+// returns the text HA answers.
+func (c *Client) RenderTemplate(ctx context.Context, template string) (string, error) {
+	payload, err := json.Marshal(templateRequest{Template: template})
+	if err != nil {
+		return "", fmt.Errorf("marshal template request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/template", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request template: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("template returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTemplate))
+	if err != nil {
+		return "", fmt.Errorf("read template response: %w", err)
+	}
+	return string(body), nil
+}
+
 type HistoryPoint struct {
 	Time  time.Time
 	Value float64

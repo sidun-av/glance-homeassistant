@@ -2,6 +2,7 @@ package hass
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -427,5 +428,72 @@ func TestFetchFanSpeeds_OneEntity(t *testing.T) {
 	}
 	if _, err := c.FetchFanSpeeds(context.Background(), "vacuum.down"); err == nil {
 		t.Error("HA error not reported")
+	}
+}
+
+func TestFetchRawStates_KeepsAttributes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/states" {
+			t.Errorf("request = %s %s, want GET /api/states", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q", got)
+		}
+		fmt.Fprint(w, `[
+			{"entity_id":"climate.demo_heater","state":"heat","attributes":{"fan_modes":["low","high"],"temperature":21.5}},
+			{"entity_id":"vacuum.demo_robot","state":"docked","attributes":{"supported_features":12348,"fan_speed_list":["Quiet"]}}
+		]`)
+	}))
+	defer server.Close()
+
+	states, err := New(server.URL, "test-token").FetchRawStates(context.Background())
+	if err != nil {
+		t.Fatalf("FetchRawStates: %v", err)
+	}
+	heater := states["climate.demo_heater"]
+	if heater.State != "heat" || heater.EntityID != "climate.demo_heater" {
+		t.Errorf("heater = %+v", heater)
+	}
+	if fans, ok := heater.Attributes["fan_modes"].([]any); !ok || len(fans) != 2 || fans[1] != "high" {
+		t.Errorf("fan_modes = %#v", heater.Attributes["fan_modes"])
+	}
+	if bits, ok := states["vacuum.demo_robot"].Attributes["supported_features"].(float64); !ok || bits != 12348 {
+		t.Errorf("supported_features = %#v", states["vacuum.demo_robot"].Attributes["supported_features"])
+	}
+}
+
+func TestFetchRawStates_NonOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	if _, err := New(server.URL, "test-token").FetchRawStates(context.Background()); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Errorf("err = %v, want one mentioning 401", err)
+	}
+}
+
+func TestRenderTemplate_ReturnsText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/template" {
+			t.Errorf("request = %s %s, want POST /api/template", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q", got)
+		}
+		var body struct{ Template string }
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Template != "{{ 1 + 1 }}" {
+			t.Errorf("template = %q", body.Template)
+		}
+		fmt.Fprint(w, "vacuum.a\tsensor.a_battery\n")
+	}))
+	defer server.Close()
+
+	text, err := New(server.URL, "test-token").RenderTemplate(context.Background(), "{{ 1 + 1 }}")
+	if err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	if text != "vacuum.a\tsensor.a_battery\n" {
+		t.Errorf("text = %q", text)
 	}
 }
