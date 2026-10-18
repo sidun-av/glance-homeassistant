@@ -23,6 +23,16 @@ type Config struct {
 	Layout        string              `yaml:"layout"`
 	LayoutFile    string              `yaml:"layout_file"` // env: LAYOUT_FILE — where the editor saves; default /data/floorplan.json
 	Floorplan     FloorplanConfig     `yaml:"floorplan"`
+	House         HouseConfig         `yaml:"house"`
+}
+
+// HouseConfig is the 3D home view: House Control's web UI, driven by this
+// server, with the plan the owner's Mac uploads.
+type HouseConfig struct {
+	PlanFile string `yaml:"plan_file"` // env: HOUSE_PLAN_FILE — where the uploaded plan is kept; default /data/house-plan.json
+	// Secret guards PUT /house/plan (a bearer token); empty disables uploads.
+	Secret string `yaml:"secret"` // env: HOUSE_PLAN_SECRET
+	Lang   string `yaml:"lang"`   // env: HOUSE_LANG — "en" (default) or "ru", for the switch, the invite and the 3D view
 }
 
 // DevicesConfig picks which non-light entities get a tile on the map.
@@ -156,6 +166,15 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.LayoutFile == "" {
 		cfg.LayoutFile = "/data/floorplan.json"
 	}
+	if cfg.House.PlanFile == "" {
+		cfg.House.PlanFile = "/data/house-plan.json"
+	}
+	if cfg.House.Lang == "" {
+		cfg.House.Lang = "en"
+	}
+	if cfg.House.Lang != "en" && cfg.House.Lang != "ru" {
+		return nil, fmt.Errorf("house.lang must be \"en\" or \"ru\", got %q", cfg.House.Lang)
+	}
 	if cfg.Layout != "cards" && cfg.Layout != "floorplan" {
 		return nil, fmt.Errorf("layout must be \"cards\" or \"floorplan\", got %q", cfg.Layout)
 	}
@@ -282,6 +301,15 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT_FILE"); ok {
 		cfg.LayoutFile = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_PLAN_FILE"); ok {
+		cfg.House.PlanFile = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_PLAN_SECRET"); ok {
+		cfg.House.Secret = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_LANG"); ok {
+		cfg.House.Lang = v
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT"); ok {
 		cfg.Layout = v

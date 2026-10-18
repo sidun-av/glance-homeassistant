@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"math"
 	"math/bits"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/sidun-av/glance-homeassistant/internal/editor"
 	"github.com/sidun-av/glance-homeassistant/internal/hass"
+	"github.com/sidun-av/glance-homeassistant/internal/house"
 	"github.com/sidun-av/glance-homeassistant/internal/layout"
 	"github.com/sidun-av/glance-homeassistant/internal/render"
 )
@@ -46,11 +48,18 @@ type app struct {
 	// mapCameras: the map cameras of the vacuums on the map, the only
 	// cameras /camera proxies.
 	mapCameras map[string]bool
+
+	// house: the House Control plan uploaded from the owner's Mac (empty
+	// until the first upload), behind the 3D view; houseDist: the House
+	// Control web build the 3D page is served from (nil: no page).
+	house     *house.Store
+	houseDist fs.FS
 }
 
 func newApp(cfg *Config) *app {
 	client := hass.New(cfg.HomeAssistant.URL, cfg.HomeAssistant.Token)
-	a := &app{cfg: cfg, cache: hass.NewAreaCache(client, 5*time.Minute), client: client, fp: cfg.Floorplan.Parsed}
+	a := &app{cfg: cfg, cache: hass.NewAreaCache(client, 5*time.Minute), client: client, fp: cfg.Floorplan.Parsed,
+		house: house.OpenStore(cfg.House.PlanFile)}
 	if cfg.Floorplan.Parsed != nil {
 		a.seed = layout.FromFloorplan(cfg.Floorplan.Parsed)
 		a.layout = a.seed
@@ -1295,6 +1304,20 @@ func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
+// houseHandler serves the 3D view's page and API. Its Base is the path the
+// browser reaches it by (through public_url), whichever prefix the request
+// actually arrives with.
+func houseHandler(cfg *Config, a *app) *house.Handler {
+	return &house.Handler{
+		Store:  a.house,
+		HA:     a.client,
+		Secret: cfg.House.Secret,
+		Base:   strings.TrimRight(cfg.PublicURL, "/") + "/house",
+		Lang:   cfg.House.Lang,
+		Dist:   a.houseDist,
+	}
+}
+
 func newMux(cfg *Config, a *app) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -1310,6 +1333,8 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	mux.HandleFunc("/camera", a.cameraHandler)
 	ed := &editor.Handler{Store: a, Source: a}
 	ed.Register(mux, "")
+	hh := houseHandler(cfg, a)
+	hh.Register(mux, "")
 
 	// A reverse proxy in front of this service (see README's "Expose this
 	// service to your browser" step) may forward a Custom Location's full
@@ -1330,6 +1355,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 		mux.HandleFunc(prefix+"/art", a.artHandler)
 		mux.HandleFunc(prefix+"/camera", a.cameraHandler)
 		ed.Register(mux, prefix)
+		hh.Register(mux, prefix)
 	}
 	return mux
 }

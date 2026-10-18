@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/sidun-av/glance-homeassistant/internal/hass"
@@ -915,5 +916,35 @@ func TestCameraHandler_OnlyRasterImagesWithNosniff(t *testing.T) {
 	ctype = "image/png"
 	if rec := get(http.MethodPost); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST: status %d, want 405", rec.Code)
+	}
+}
+
+func TestNewMux_HouseRoutesUnderPrefix(t *testing.T) {
+	cfg := testConfig("http://ha.invalid")
+	cfg.PublicURL = "/ha-widget"
+	mux := newMux(cfg, newApp(cfg))
+	for _, path := range []string{"/house/state", "/ha-widget/house/state", "/house/plan", "/ha-widget/house/plan"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusNotFound || strings.TrimSpace(rec.Body.String()) != `{"error":"no_plan"}` {
+			t.Errorf("%s: %d %q, want 404 no_plan", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestNewMux_HousePageUsesPublicURL(t *testing.T) {
+	cfg := testConfig("http://ha.invalid")
+	cfg.PublicURL = "/ha-widget/"
+	cfg.House.Lang = "ru"
+	a := newApp(cfg)
+	a.houseDist = fstest.MapFS{"index.html": {Data: []byte("<html><head></head></html>")}}
+	mux := newMux(cfg, a)
+	for _, path := range []string{"/house/", "/ha-widget/house/"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<base href="/ha-widget/house/">`) ||
+			!strings.Contains(rec.Body.String(), `{"host":"/ha-widget/house","lang":"ru","embed":true}`) {
+			t.Errorf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
 	}
 }

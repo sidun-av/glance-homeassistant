@@ -537,3 +537,61 @@ func contains(list []string, v string) bool {
 	}
 	return false
 }
+
+func TestLoadConfig_HouseDefaults(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.House.PlanFile != "/data/house-plan.json" || cfg.House.Secret != "" || cfg.House.Lang != "en" {
+		t.Errorf("House = %+v, want /data/house-plan.json, no secret, en", cfg.House)
+	}
+}
+
+func TestLoadConfig_HouseYAMLAndEnv(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+house:
+  plan_file: /srv/plan.json
+  secret: from-yaml
+  lang: en
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.House.PlanFile != "/srv/plan.json" || cfg.House.Secret != "from-yaml" {
+		t.Errorf("House from YAML = %+v", cfg.House)
+	}
+
+	t.Setenv("HOUSE_PLAN_FILE", "/tmp/plan.json")
+	t.Setenv("HOUSE_PLAN_SECRET", "s3cret")
+	t.Setenv("HOUSE_LANG", "ru")
+	cfg, err = LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.House.PlanFile != "/tmp/plan.json" || cfg.House.Secret != "s3cret" || cfg.House.Lang != "ru" {
+		t.Errorf("House from env = %+v", cfg.House)
+	}
+}
+
+func TestLoadConfig_HouseLangInvalid(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+`)
+	t.Setenv("HOUSE_LANG", "de")
+	_, err := LoadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "house.lang") {
+		t.Errorf("err = %v, want one mentioning house.lang", err)
+	}
+}
