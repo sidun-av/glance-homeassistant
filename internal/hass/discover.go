@@ -3,6 +3,7 @@ package hass
 import (
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -43,8 +44,8 @@ type SensorEntity struct {
 // Device is any non-light, non-sensor entity worth a tile on the map: a
 // fan, a climate unit, a media player, a vacuum, ... Effect says what it
 // pushes into the room while On: "fan" (cool air), "heat" (warm air),
-// "music" (notes drifting up from a playing media player) or "" (nothing
-// animated).
+// "music" (notes drifting up from a playing media player), "vacuum" (the
+// robot's activity, drawn from Activity) or "" (nothing animated).
 type Device struct {
 	EntityID string
 	Name     string
@@ -74,9 +75,85 @@ type Device struct {
 	PresetModes    []string // fan: e.g. "Straight Wind", "Natural Wind"
 	PresetMode     string
 
+	// vacuum only. Activity is the entity's state (cleaning, returning,
+	// docked, paused, idle, error); Battery comes from battery_level or a
+	// battery sensor of the same device (nil when neither exists); MapCamera
+	// is the same device's camera entity, which the vacuum integrations use
+	// to draw the map and the route of the current or last clean.
+	Activity       string
+	Battery        *int
+	FanSpeed       string
+	FanSpeeds      []string
+	SupportsLocate bool
+	MapCamera      string
+
 	// Extras are the other controllable entities of the same HA device
 	// (see deviceExtras).
 	Extras []Extra
+}
+
+// vacuumLocate is VacuumEntityFeature.LOCATE in HA's supported_features.
+const vacuumLocate = 512
+
+// deviceGroupOf finds the HA device entityID belongs to within its room.
+func deviceGroupOf(entityID string, room Room) *DeviceGroup {
+	for i := range room.Devices {
+		if contains(room.Devices[i].EntityIDs, entityID) {
+			return &room.Devices[i]
+		}
+	}
+	return nil
+}
+
+// usable reports whether a sibling entity has a real value right now.
+func usable(st EntityState, ok bool) bool {
+	return ok && st.State != "unavailable" && st.State != "unknown" && st.State != ""
+}
+
+// deviceBattery is a vacuum's battery percentage: its own battery_level
+// attribute, else the first numeric battery sensor of the same device.
+func deviceBattery(entityID string, st EntityState, room Room, states map[string]EntityState) *int {
+	if st.BatteryLevel != nil {
+		return st.BatteryLevel
+	}
+	group := deviceGroupOf(entityID, room)
+	if group == nil {
+		return nil
+	}
+	for _, id := range group.EntityIDs {
+		s, ok := states[id]
+		if !usable(s, ok) || s.Domain != "sensor" || s.DeviceClass != "battery" {
+			continue
+		}
+		if v, err := strconv.ParseFloat(s.State, 64); err == nil {
+			b := int(math.Round(v))
+			return &b
+		}
+	}
+	return nil
+}
+
+// deviceMapCamera picks the same-device camera a vacuum draws its map on:
+// one whose id mentions "map" if there are several, else the first.
+func deviceMapCamera(entityID string, room Room, states map[string]EntityState) string {
+	group := deviceGroupOf(entityID, room)
+	if group == nil {
+		return ""
+	}
+	first := ""
+	for _, id := range group.EntityIDs {
+		s, ok := states[id]
+		if !usable(s, ok) || s.Domain != "camera" {
+			continue
+		}
+		if strings.Contains(id, "map") {
+			return id
+		}
+		if first == "" {
+			first = id
+		}
+	}
+	return first
 }
 
 // Extra is one of a device's sibling controls, shown in its popover: a
@@ -100,13 +177,7 @@ type Extra struct {
 // Names drop the device's name prefix ("Mi Smart Standing Fan 2 Horizontal
 // Angle" → "Horizontal Angle").
 func deviceExtras(entityID string, room Room, states map[string]EntityState, exclude []string) []Extra {
-	var group *DeviceGroup
-	for i := range room.Devices {
-		if contains(room.Devices[i].EntityIDs, entityID) {
-			group = &room.Devices[i]
-			break
-		}
-	}
+	group := deviceGroupOf(entityID, room)
 	if group == nil {
 		return nil
 	}
@@ -232,7 +303,7 @@ func DeviceEffect(state EntityState) (on bool, effect string) {
 	case "lock":
 		return state.State == "unlocked", ""
 	case "vacuum":
-		return state.State == "cleaning" || state.State == "returning", ""
+		return state.State == "cleaning" || state.State == "returning", "vacuum"
 	case "media_player":
 		return state.State == "playing", "music"
 	}
@@ -399,6 +470,13 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					d.HasOscillate = state.SupportedFeatures&2 != 0 || state.Oscillating != nil
 					d.Oscillating = state.Oscillating != nil && *state.Oscillating
 					d.PresetModes, d.PresetMode = state.PresetModes, state.PresetMode
+				}
+				if state.Domain == "vacuum" {
+					d.Activity = state.State
+					d.Battery = deviceBattery(entityID, state, room, states)
+					d.FanSpeed, d.FanSpeeds = state.FanSpeed, state.FanSpeedList
+					d.SupportsLocate = state.SupportedFeatures&vacuumLocate != 0
+					d.MapCamera = deviceMapCamera(entityID, room, states)
 				}
 				d.Extras = deviceExtras(entityID, room, states, cfg.DeviceExclude)
 				b.devices = append(b.devices, d)

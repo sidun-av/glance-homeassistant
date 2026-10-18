@@ -365,3 +365,24 @@ func TestFetchSunState_MissingOrMalformedTimestampsLeaveZeroValueNotError(t *tes
 		t.Errorf("state.NextSetting = %v, want zero value for a malformed string", state.NextSetting)
 	}
 }
+
+func TestFetchStates_ParsesVacuumAttributes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[
+			{"entity_id":"vacuum.robot","state":"docked","attributes":{"friendly_name":"Robot","battery_level":80,"fan_speed":"normal","fan_speed_list":["gentle","normal","strong"],"supported_features":13148}},
+			{"entity_id":"vacuum.bare","state":"idle","attributes":{"fan_speed":null}}
+		]`)
+	}))
+	defer server.Close()
+	states, err := New(server.URL, "t").FetchStates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := states["vacuum.robot"]
+	if v.BatteryLevel == nil || *v.BatteryLevel != 80 || v.FanSpeed != "normal" || len(v.FanSpeedList) != 3 || v.SupportedFeatures != 13148 {
+		t.Errorf("vacuum.robot = %+v", v)
+	}
+	if b := states["vacuum.bare"]; b.BatteryLevel != nil || b.FanSpeed != "" || b.FanSpeedList != nil {
+		t.Errorf("vacuum.bare = %+v, want no battery/fan speed", b)
+	}
+}

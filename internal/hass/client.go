@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -147,6 +148,14 @@ type EntityState struct {
 	PresetModes       []string // fan
 	PresetMode        string
 
+	// vacuum only. BatteryLevel is nil when the entity has no battery_level
+	// attribute (newer integrations report battery as a separate sensor of
+	// the same device instead); FanSpeed is the current suction level, one
+	// of FanSpeedList.
+	BatteryLevel *int
+	FanSpeed     string
+	FanSpeedList []string
+
 	// select / number (a device's extra controls)
 	Options []string
 	Min     *float64
@@ -216,6 +225,10 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			PresetModes       []string `json:"preset_modes"`
 			PresetMode        *string  `json:"preset_mode"`
 
+			BatteryLevel *float64 `json:"battery_level"`
+			FanSpeed     *string  `json:"fan_speed"`
+			FanSpeedList []string `json:"fan_speed_list"`
+
 			Options []string `json:"options"`
 			Min     *float64 `json:"min"`
 			Max     *float64 `json:"max"`
@@ -279,6 +292,8 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 			Oscillating:       s.Attributes.Oscillating,
 			PresetModes:       s.Attributes.PresetModes,
 
+			FanSpeedList: s.Attributes.FanSpeedList,
+
 			Options: s.Attributes.Options,
 			Min:     s.Attributes.Min,
 			Max:     s.Attributes.Max,
@@ -290,6 +305,9 @@ func (c *Client) FetchStates(ctx context.Context) (map[string]EntityState, error
 		}
 		if s.Attributes.VolumeLevel != nil {
 			states[s.EntityID] = withVolume(states[s.EntityID], *s.Attributes.VolumeLevel)
+		}
+		if s.Attributes.BatteryLevel != nil || s.Attributes.FanSpeed != nil {
+			states[s.EntityID] = withVacuum(states[s.EntityID], s.Attributes.BatteryLevel, s.Attributes.FanSpeed)
 		}
 	}
 	return states, nil
@@ -514,6 +532,19 @@ func (s SunState) SolarNoon() (noon time.Time, ok bool) {
 		rise = rise.Add(-24 * time.Hour)
 	}
 	return rise.Add(set.Sub(rise) / 2), true
+}
+
+// withVacuum sets a vacuum's battery (rounded to a whole percent; some
+// integrations report it as a float) and its current fan speed.
+func withVacuum(st EntityState, battery *float64, fanSpeed *string) EntityState {
+	if battery != nil {
+		b := int(math.Round(*battery))
+		st.BatteryLevel = &b
+	}
+	if fanSpeed != nil {
+		st.FanSpeed = *fanSpeed
+	}
+	return st
 }
 
 func withVolume(st EntityState, v float64) EntityState {

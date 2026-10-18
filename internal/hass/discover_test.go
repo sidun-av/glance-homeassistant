@@ -339,3 +339,56 @@ func TestDeviceExtras_SiblingsOfTheSameDevice(t *testing.T) {
 		t.Errorf("extras = %v, want %s (fan speed number, buttons and unavailable ones dropped)", names, want)
 	}
 }
+
+func TestBuildModel_VacuumFields(t *testing.T) {
+	bat := 64
+	rooms := []Room{{Name: "Hall", EntityIDs: []string{"vacuum.robot", "vacuum.other"},
+		Devices: []DeviceGroup{
+			{Name: "Robot", EntityIDs: []string{"vacuum.robot", "sensor.robot_battery", "camera.robot_cam", "camera.robot_map", "sensor.robot_area"}},
+			{Name: "Other", EntityIDs: []string{"vacuum.other", "sensor.other_battery", "camera.other_map"}},
+		}}}
+	states := map[string]EntityState{
+		"vacuum.robot": {EntityID: "vacuum.robot", Domain: "vacuum", State: "cleaning", FriendlyName: "Robot",
+			FanSpeed: "normal", FanSpeedList: []string{"gentle", "normal", "strong"}, SupportedFeatures: 512 | 8192},
+		"sensor.robot_battery": {Domain: "sensor", State: "87", DeviceClass: "battery"},
+		"sensor.robot_area":    {Domain: "sensor", State: "12", DeviceClass: "area"},
+		"camera.robot_cam":     {Domain: "camera", State: "idle"},
+		"camera.robot_map":     {Domain: "camera", State: "idle"},
+		// battery_level on the entity wins over the sibling sensor; an
+		// unavailable camera is no map
+		"vacuum.other":         {EntityID: "vacuum.other", Domain: "vacuum", State: "docked", BatteryLevel: &bat, SupportedFeatures: 8192},
+		"sensor.other_battery": {Domain: "sensor", State: "12", DeviceClass: "battery"},
+		"camera.other_map":     {Domain: "camera", State: "unavailable"},
+	}
+	cfg := defaultClassificationConfig()
+	cfg.DeviceDomains = []string{"vacuum"}
+	cards := BuildModel(rooms, states, cfg)
+	if len(cards) != 1 {
+		t.Fatalf("cards = %+v", cards)
+	}
+	by := map[string]Device{}
+	for _, d := range cards[0].Devices {
+		by[d.EntityID] = d
+	}
+	r := by["vacuum.robot"]
+	if !r.On || r.Effect != "vacuum" || r.Activity != "cleaning" || r.Battery == nil || *r.Battery != 87 ||
+		r.FanSpeed != "normal" || len(r.FanSpeeds) != 3 || !r.SupportsLocate || r.MapCamera != "camera.robot_map" {
+		t.Errorf("vacuum.robot = %+v (battery %v)", r, r.Battery)
+	}
+	o := by["vacuum.other"]
+	if o.On || o.Effect != "vacuum" || o.Activity != "docked" || o.Battery == nil || *o.Battery != 64 || o.SupportsLocate || o.MapCamera != "" {
+		t.Errorf("vacuum.other = %+v", o)
+	}
+}
+
+func TestBuildModel_VacuumWithoutDevice(t *testing.T) {
+	rooms := []Room{{Name: "Hall", EntityIDs: []string{"vacuum.robot"}}}
+	states := map[string]EntityState{"vacuum.robot": {EntityID: "vacuum.robot", Domain: "vacuum", State: "error"}}
+	cfg := defaultClassificationConfig()
+	cfg.DeviceDomains = []string{"vacuum"}
+	cards := BuildModel(rooms, states, cfg)
+	d := cards[0].Devices[0]
+	if d.Activity != "error" || d.Battery != nil || d.MapCamera != "" || d.On {
+		t.Errorf("got %+v", d)
+	}
+}
