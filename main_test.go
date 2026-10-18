@@ -670,3 +670,67 @@ func TestTemperatureHandler(t *testing.T) {
 		t.Errorf("room without a temperature sensor: status %d, want 404", rec.Code)
 	}
 }
+
+func TestEntityHandler_VacuumActions(t *testing.T) {
+	var calls []string
+	var lastBody map[string]any
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/states" {
+			fmt.Fprint(w, `[{"entity_id":"vacuum.robot","state":"docked","attributes":{"fan_speed":"normal","fan_speed_list":["gentle","normal","strong"]}}]`)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/services/") {
+			calls = append(calls, r.URL.Path)
+			json.NewDecoder(r.Body).Decode(&lastBody)
+		}
+		fmt.Fprint(w, `[]`)
+	}))
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	mux := newMux(cfg, newApp(cfg))
+
+	cases := []struct {
+		body     string
+		wantCode int
+		wantPath string
+	}{
+		{`{"entity_id":"vacuum.robot","action":"start"}`, 204, "/api/services/vacuum/start"},
+		{`{"entity_id":"vacuum.robot","action":"pause"}`, 204, "/api/services/vacuum/pause"},
+		{`{"entity_id":"vacuum.robot","action":"return_to_base"}`, 204, "/api/services/vacuum/return_to_base"},
+		{`{"entity_id":"vacuum.robot","action":"locate"}`, 204, "/api/services/vacuum/locate"},
+		{`{"entity_id":"vacuum.robot","action":"set_fan_speed","fan_speed":"strong"}`, 204, "/api/services/vacuum/set_fan_speed"},
+		{`{"entity_id":"vacuum.robot","action":"set_fan_speed","fan_speed":"turbo"}`, 400, ""},
+		{`{"entity_id":"vacuum.robot","action":"set_fan_speed"}`, 400, ""},
+		{`{"entity_id":"vacuum.unknown","action":"set_fan_speed","fan_speed":"strong"}`, 400, ""},
+		{`{"entity_id":"vacuum.robot","action":"toggle"}`, 400, ""},
+		{`{"entity_id":"vacuum.robot","action":"stop"}`, 400, ""},
+		{`{"entity_id":"vacuum.robot","action":"send_command"}`, 400, ""},
+	}
+	for _, c := range cases {
+		calls, lastBody = nil, nil
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/ha-widget/entity", strings.NewReader(c.body)))
+		if rec.Code != c.wantCode {
+			t.Errorf("%s: status %d, want %d (%s)", c.body, rec.Code, c.wantCode, rec.Body.String())
+			continue
+		}
+		if c.wantPath == "" {
+			if len(calls) != 0 {
+				t.Errorf("%s: service called for a rejected request: %v", c.body, calls)
+			}
+			continue
+		}
+		if len(calls) != 1 || calls[0] != c.wantPath {
+			t.Errorf("%s: calls %v, want %s", c.body, calls, c.wantPath)
+		}
+		if lastBody["entity_id"] != "vacuum.robot" {
+			t.Errorf("%s: service data %v", c.body, lastBody)
+		}
+	}
+	// the chosen speed is passed through as fan_speed
+	calls, lastBody = nil, nil
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/entity", strings.NewReader(`{"entity_id":"vacuum.robot","action":"set_fan_speed","fan_speed":"gentle"}`)))
+	if lastBody["fan_speed"] != "gentle" {
+		t.Errorf("set_fan_speed data = %v", lastBody)
+	}
+}

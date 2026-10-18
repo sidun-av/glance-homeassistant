@@ -598,7 +598,10 @@ func (a *app) mediaHandler(w http.ResponseWriter, r *http.Request) {
 // works for every domain listed here without hardcoding each domain's own
 // service name. set_brightness/set_color_temp/set_color are light-only
 // (light.turn_on with the matching service data); set_temperature is
-// climate-only (climate.set_temperature). media_player is deliberately
+// climate-only (climate.set_temperature). vacuum has no toggle: most robots
+// don't advertise TURN_ON/TURN_OFF, so homeassistant.toggle does nothing on
+// them — a tile tap sends start or pause instead, and set_fan_speed only
+// passes a speed from the entity's own fan_speed_list. media_player is deliberately
 // absent — it already has its own dedicated Now-playing controls (see
 // mediaHandler), and routing its device tile through a generic toggle would
 // give it a second, conflicting way to be controlled.
@@ -612,13 +615,32 @@ var entityDomainActions = map[string]map[string]bool{
 	"lock":         {"toggle": true},
 	"humidifier":   {"toggle": true},
 	"water_heater": {"toggle": true, "set_temperature": true},
-	"vacuum":       {"toggle": true},
+	"vacuum":       {"start": true, "pause": true, "return_to_base": true, "locate": true, "set_fan_speed": true},
 	"climate":      {"toggle": true, "set_temperature": true, "set_hvac_mode": true},
 }
 
 // hvacModes are Home Assistant's HVACMode values, the only ones
 // set_hvac_mode passes through.
 var hvacModes = map[string]bool{"off": true, "heat": true, "cool": true, "heat_cool": true, "auto": true, "dry": true, "fan_only": true}
+
+// checkFanSpeed accepts a vacuum suction level only when the entity itself
+// lists it in fan_speed_list (the names are integration-specific, so there
+// is no fixed allowlist to check against).
+// The status is what the handler should answer with on error: 400 for a
+// bad value, 502 when HA could not be asked.
+func (a *app) checkFanSpeed(ctx context.Context, entityID, speed string) (int, error) {
+	if speed == "" {
+		return http.StatusBadRequest, fmt.Errorf("fan_speed is required")
+	}
+	states, err := a.client.FetchStates(ctx)
+	if err != nil {
+		return http.StatusBadGateway, fmt.Errorf("fetch states: %w", err)
+	}
+	if !containsStr(states[entityID].FanSpeedList, speed) {
+		return http.StatusBadRequest, fmt.Errorf("fan_speed %q is not one of %s's fan speeds", speed, entityID)
+	}
+	return 0, nil
+}
 
 // entityHandler proxies a floorplan tile's click or popover action to Home
 // Assistant. Modeled on mediaHandler (same CORS/decode/log shape), but
@@ -650,6 +672,7 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 		PresetMode  string   `json:"preset_mode"`       // set_preset_mode
 		Option      string   `json:"option"`            // select_option
 		Value       *float64 `json:"value"`             // set_value
+		FanSpeed    string   `json:"fan_speed"`         // set_fan_speed (vacuum)
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -753,6 +776,13 @@ func (a *app) entityHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+	if req.Action == "set_fan_speed" {
+		if code, err := a.checkFanSpeed(ctx, req.EntityID, req.FanSpeed); err != nil {
+			http.Error(w, err.Error(), code)
+			return
+		}
+		data["fan_speed"] = req.FanSpeed
+	}
 	if err := a.client.CallServiceData(ctx, svcDomain, service, data); err != nil {
 		log.Printf("entity %s %s from %s: %v", req.Action, req.EntityID, r.RemoteAddr, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
