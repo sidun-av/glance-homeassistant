@@ -149,14 +149,16 @@ func ParsePlan(raw []byte) (*Plan, error) {
 }
 
 // deviceFrom reads one plan device, ok only when it is linked to Home
-// Assistant through an entity whose domain fits the kind.
+// Assistant through a well-formed entity id (lowercase letters, digits and
+// underscores around one dot) whose domain fits the kind. An AC's sensor
+// link is kept under the same rule.
 func deviceFrom(obj map[string]any, kind Kind, domains []string) (Device, bool) {
 	id, _ := obj["id"].(string)
 	if id == "" {
 		return Device{}, false
 	}
 	entity, ok := haLink(obj["link"])
-	if !ok || !hasDomain(entity, domains) {
+	if !ok || !safeEntityID.MatchString(entity) || !hasDomain(entity, domains) {
 		return Device{}, false
 	}
 	d := Device{AppID: id, Kind: kind, EntityID: entity}
@@ -170,7 +172,7 @@ func deviceFrom(obj map[string]any, kind Kind, domains []string) (Device, bool) 
 			}
 		}
 	case KindAC:
-		if sensor, ok := haLink(obj["sensor"]); ok && hasDomain(sensor, []string{"sensor."}) {
+		if sensor, ok := haLink(obj["sensor"]); ok && safeEntityID.MatchString(sensor) && hasDomain(sensor, []string{"sensor."}) {
 			d.SensorID = sensor
 		}
 		// The panel's own defaults (web/src/config.js).

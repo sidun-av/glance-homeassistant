@@ -111,6 +111,36 @@ func TestParsePlan_ACDefaultsAndNonHASensorDropped(t *testing.T) {
 	}
 }
 
+// An entity id that is not one Home Assistant could have (a list, a space,
+// capitals) would be served as a device that always fails; it is dropped
+// like any other unsupported link, and so is such an AC sensor.
+func TestParsePlan_MalformedEntityIDsDropped(t *testing.T) {
+	raw := `{"rooms":[{"id":"a"}],"lights":[` +
+		`{"id":"l.list","link":{"service":"homeassistant","id":"light.a,light.b"}},` +
+		`{"id":"l.space","link":{"service":"homeassistant","id":"light.a b"}},` +
+		`{"id":"l.caps","link":{"service":"homeassistant","id":"light.Lamp"}},` +
+		`{"id":"l.two","link":{"service":"homeassistant","id":"light.a.b"}},` +
+		`{"id":"l.good","link":{"service":"homeassistant","id":"light.demo_lamp"}}],` +
+		`"acs":[{"id":"k.ac","link":{"service":"homeassistant","id":"climate.demo_heater"},"sensor":{"service":"homeassistant","id":"sensor.t,sensor.u"}}]}`
+	p, err := ParsePlan([]byte(raw))
+	if err != nil {
+		t.Fatalf("ParsePlan: %v", err)
+	}
+	var ids []string
+	for _, d := range p.Devices {
+		ids = append(ids, d.AppID)
+	}
+	if !reflect.DeepEqual(ids, []string{"l.good", "k.ac"}) {
+		t.Errorf("devices = %v, want only l.good and k.ac", ids)
+	}
+	if d, _ := p.Device("k.ac"); d.SensorID != "" {
+		t.Errorf("AC sensor = %q, want none", d.SensorID)
+	}
+	if strings.Contains(string(p.Served()), "sensor.t") {
+		t.Errorf("served plan keeps the malformed sensor: %s", p.Served())
+	}
+}
+
 func TestParsePlan_Rejects(t *testing.T) {
 	cases := map[string]struct {
 		raw    string
