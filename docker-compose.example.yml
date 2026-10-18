@@ -26,7 +26,10 @@ services:
       - HOUSE_LANG=${HOUSE_LANG:-}
     # Optional: a LAN port for tools/house-plan-push on your Mac. Plan uploads
     # are refused when they come through a reverse proxy, so the Mac needs
-    # a direct route to the container.
+    # a direct route to the container. Note that this port has no login:
+    # anyone on the LAN who reaches it can read and control the 3D view's
+    # devices. Bind it to one interface or firewall it to the Mac if that
+    # matters (README, "Who can control the home").
     # ports:
     #   - "8081:8080"
     # Optional: mount a hand-edited config.yml instead of (or alongside) the

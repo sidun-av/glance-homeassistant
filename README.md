@@ -261,7 +261,11 @@ from inside the widget.
 
 **Who can control the home.** Anyone who can open `<public_url>` can switch the devices in the 3D
 view. This is the same rule as the map's controls and the editor. If `public_url` is reachable
-from the internet, keep it behind your reverse proxy's auth.
+from the internet, keep it behind your reverse proxy's auth. The container's own port is a second way in:
+once it is published on the LAN for the plan pusher, every host on the LAN can read `/house/state`
+and send `/house/command` with no login at all, bypassing the proxy's auth, and the upload secret
+travels over plain HTTP there. If that matters, bind the published port to one interface or
+firewall it so that only the Mac can reach it.
 
 **Updating the vendored build.** `internal/house/dist/` is House Control's `web/dist`, built at a
 pinned commit. Its `VERSION` file records which commit. To move to another commit, check out the
