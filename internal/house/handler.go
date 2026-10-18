@@ -56,12 +56,18 @@ type Handler struct {
 	batteryMu sync.Mutex
 	batteryOf string            // plan ETag the battery sensors were looked up for
 	batteries map[string]string // vacuum → battery sensor ("" none)
+	batteryOK bool              // the lookup for batteryOf succeeded
+	batteryAt time.Time         // when it last failed
 	devMu     sync.Mutex
 	devLocks  map[string]*sync.Mutex
+
+	clock func() time.Time // nil: time.Now (tests set it)
 }
 
 const (
 	statesTTL       = 2 * time.Second
+	batteryBudget   = 5 * time.Second
+	batteryRetry    = time.Minute
 	stateBudget     = 5 * time.Second
 	commandBudget   = 10 * time.Second
 	maxCommandBytes = 8 << 10
@@ -215,7 +221,7 @@ func (h *Handler) state(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	snap := Snapshot(p, states, h.batterySensors(ctx, p))
+	snap := Snapshot(p, states, h.batterySensors(p))
 	snap["planVersion"] = p.ETag
 	writeJSON(w, http.StatusOK, snap)
 }
@@ -245,13 +251,15 @@ func (h *Handler) dropStates() {
 }
 
 // batterySensors looks each vacuum's battery sensor up once per plan, with
-// one template request. A lookup that fails counts as "no sensor" until
-// the plan changes (as in House Control): the vacuum's own battery_level,
-// if any, is used meanwhile.
-func (h *Handler) batterySensors(ctx context.Context, p *Plan) map[string]string {
+// one template request. A failed lookup is not kept: it means "no sensor"
+// (the vacuum's own battery_level, if any, is used meanwhile) and is tried
+// again batteryRetry later. The lookup runs on its own deadline, not the
+// viewer's request, so a closed tab or a slow states read cannot cost the
+// battery.
+func (h *Handler) batterySensors(p *Plan) map[string]string {
 	h.batteryMu.Lock()
 	defer h.batteryMu.Unlock()
-	if h.batteryOf == p.ETag {
+	if h.batteryOf == p.ETag && (h.batteryOK || h.now().Sub(h.batteryAt) < batteryRetry) {
 		return h.batteries
 	}
 	var vacuums []string
@@ -261,19 +269,29 @@ func (h *Handler) batterySensors(ctx context.Context, p *Plan) map[string]string
 		}
 	}
 	out := map[string]string{}
+	ok := true
 	if len(vacuums) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), batteryBudget)
 		text, err := h.HA.RenderTemplate(ctx, BatteryTemplate(vacuums))
+		cancel()
 		if err != nil {
-			log.Printf("house: battery sensors: %v", err)
-			text = ""
+			log.Printf("house: battery sensors (retried in %s): %v", batteryRetry, err)
+			text, ok = "", false
 		}
 		found := ParseBatterySensors(text)
 		for _, v := range vacuums {
 			out[v] = found[v]
 		}
 	}
-	h.batteryOf, h.batteries = p.ETag, out
+	h.batteryOf, h.batteries, h.batteryOK, h.batteryAt = p.ETag, out, ok, h.now()
 	return out
+}
+
+func (h *Handler) now() time.Time {
+	if h.clock != nil {
+		return h.clock()
+	}
+	return time.Now()
 }
 
 // --- /house/command ---

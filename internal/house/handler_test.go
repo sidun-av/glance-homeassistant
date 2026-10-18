@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/sidun-av/glance-homeassistant/internal/hass"
 )
@@ -29,6 +30,7 @@ type fakeHA struct {
 	statesErr   error
 	template    string
 	templateErr error
+	templateCtx bool // RenderTemplate fails when its context is done
 	callErr     error
 	fetches     int
 	templates   int
@@ -53,6 +55,9 @@ func (f *fakeHA) RenderTemplate(ctx context.Context, tpl string) (string, error)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.templates++
+	if f.templateCtx && ctx.Err() != nil {
+		return "", ctx.Err()
+	}
 	return f.template, f.templateErr
 }
 
@@ -318,6 +323,59 @@ func TestState_BatteryTemplateFailureMeansNoSensor(t *testing.T) {
 	robot := body["vacuums"].(map[string]any)["h.robot"].(map[string]any)
 	if _, ok := robot["battery"]; ok {
 		t.Errorf("robot = %v, want no battery", robot)
+	}
+}
+
+// One transient template failure (an expired or cancelled context) must
+// not lose the battery sensor for the plan's lifetime: it is asked again
+// after the back-off, and HA's answer then counts.
+func TestState_BatteryLookupRetriedAfterAFailure(t *testing.T) {
+	ha := newFakeHA()
+	ha.templateErr = context.DeadlineExceeded
+	h, mux := newTestHandler(t, ha, true)
+	now := time.Unix(1_700_000_000, 0)
+	h.clock = func() time.Time { return now }
+	battery := func() any {
+		t.Helper()
+		var body map[string]any
+		rec := do(mux, http.MethodGet, "/house/state", "")
+		json.Unmarshal(rec.Body.Bytes(), &body)
+		return body["vacuums"].(map[string]any)["h.robot"].(map[string]any)["battery"]
+	}
+	if b := battery(); b != nil {
+		t.Fatalf("battery = %v while the template fails", b)
+	}
+	ha.mu.Lock()
+	ha.templateErr = nil
+	ha.mu.Unlock()
+	if b := battery(); b != nil || ha.templates != 1 {
+		t.Errorf("within the back-off: battery %v, templates %d, want none and 1", b, ha.templates)
+	}
+	now = now.Add(batteryRetry)
+	if b := battery(); b != 42.0 || ha.templates != 2 {
+		t.Errorf("after the back-off: battery %v, templates %d, want 42 and 2", b, ha.templates)
+	}
+	now = now.Add(time.Hour)
+	if b := battery(); b != 42.0 || ha.templates != 2 {
+		t.Errorf("a success is kept: battery %v, templates %d", b, ha.templates)
+	}
+}
+
+// The lookup does not run on the viewer's request context.
+func TestState_BatteryLookupOutlivesTheRequest(t *testing.T) {
+	ha := newFakeHA()
+	ha.templateCtx = true
+	_, mux := newTestHandler(t, ha, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/house/state", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	var body map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	robot, _ := body["vacuums"].(map[string]any)["h.robot"].(map[string]any)
+	if robot["battery"] != 42.0 {
+		t.Errorf("a cancelled request: %d %s, want the battery from the sensor", rec.Code, rec.Body.String())
 	}
 }
 
