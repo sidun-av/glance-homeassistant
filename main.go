@@ -59,7 +59,7 @@ type app struct {
 func newApp(cfg *Config) *app {
 	client := hass.New(cfg.HomeAssistant.URL, cfg.HomeAssistant.Token)
 	a := &app{cfg: cfg, cache: hass.NewAreaCache(client, 5*time.Minute), client: client, fp: cfg.Floorplan.Parsed,
-		house: house.OpenStore(cfg.House.PlanFile)}
+		house: house.OpenStore(cfg.House.PlanFile), houseDist: house.DistFS()}
 	if cfg.Floorplan.Parsed != nil {
 		a.seed = layout.FromFloorplan(cfg.Floorplan.Parsed)
 		a.layout = a.seed

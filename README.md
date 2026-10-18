@@ -268,15 +268,20 @@ travels over plain HTTP there. If that matters, bind the published port to one i
 firewall it so that only the Mac can reach it.
 
 **Updating the vendored build.** `internal/house/dist/` is House Control's `web/dist`, built at a
-pinned commit. Its `VERSION` file records which commit. To move to another commit, check out the
-House Control source next to this repo (or point `HOUSE_CONTROL_SRC` at it) and run:
+pinned commit and embedded into the binary. Its `VERSION` file records which commit, and
+House Control's MIT `LICENSE` sits next to it. To move to another commit, check out the House
+Control source next to this repo (or point `HOUSE_CONTROL_SRC` at it) and run:
 
 ```bash
 tools/house-dist/update.sh <commit>
 go test ./...
 ```
 
-That needs Node; the Docker build does not.
+The script exports that commit's `web/` with `git archive` into a temporary directory (your
+checkout's working tree and `node_modules` are not used or changed), runs `npm ci` and
+`npm run build` there, and replaces `internal/house/dist/` with the result minus the demo
+`plans/`. It refuses a build whose `index.html` loads anything other than `./assets/…`. That
+needs git and Node; the Docker build does not.
 
 ## Setup
 
