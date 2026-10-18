@@ -579,8 +579,13 @@ func (c *Client) CallServiceData(ctx context.Context, domain, service string, da
 	return nil
 }
 
+// maxPicture caps a picture FetchPicture reads (album art, a vacuum map).
+const maxPicture = 4 << 20
+
 // FetchPicture streams an HA-relative picture URL (an entity_picture)
-// with this client's token, returning the body and its content type.
+// with this client's token, returning the body and its content type. A
+// picture over maxPicture is an error rather than silently cut short (a
+// truncated image would be served as a broken one).
 func (c *Client) FetchPicture(ctx context.Context, relURL string) ([]byte, string, error) {
 	if !strings.HasPrefix(relURL, "/") {
 		return nil, "", fmt.Errorf("picture url must be HA-relative")
@@ -598,9 +603,12 @@ func (c *Client) FetchPicture(ctx context.Context, relURL string) ([]byte, strin
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("picture returned status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPicture+1))
 	if err != nil {
 		return nil, "", err
+	}
+	if len(body) > maxPicture {
+		return nil, "", fmt.Errorf("picture larger than %d bytes", maxPicture)
 	}
 	return body, resp.Header.Get("Content-Type"), nil
 }

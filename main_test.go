@@ -873,3 +873,40 @@ func TestCameraHandler_UpstreamErrorIsGeneric(t *testing.T) {
 		t.Errorf("502 body leaks upstream detail: %q", rec.Body.String())
 	}
 }
+
+func TestCameraHandler_OnlyRasterImagesWithNosniff(t *testing.T) {
+	ctype := "image/png"
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/template":
+			fmt.Fprint(w, `[{"id":"hall","name":"Hall","entities":["vacuum.robot"],"devices":[{"name":"Robot","entities":["vacuum.robot","camera.robot_map"]}]}]`)
+		case r.URL.Path == "/api/states":
+			fmt.Fprint(w, `[{"entity_id":"vacuum.robot","state":"docked","attributes":{}},{"entity_id":"camera.robot_map","state":"idle","attributes":{}}]`)
+		default:
+			w.Header().Set("Content-Type", ctype)
+			fmt.Fprint(w, "DATA")
+		}
+	}))
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	cfg.Devices.Domains = []string{"vacuum"}
+	mux := newMux(cfg, newApp(cfg))
+	get := func(method string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, "/camera?entity_id=camera.robot_map", nil))
+		return rec
+	}
+	if rec := get(http.MethodGet); rec.Code != 200 || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("png: status %d, nosniff %q", rec.Code, rec.Header().Get("X-Content-Type-Options"))
+	}
+	for _, ct := range []string{"text/html", "image/svg+xml", "application/octet-stream"} {
+		ctype = ct
+		if rec := get(http.MethodGet); rec.Code != http.StatusBadGateway {
+			t.Errorf("upstream %s: status %d, want 502", ct, rec.Code)
+		}
+	}
+	ctype = "image/png"
+	if rec := get(http.MethodPost); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST: status %d, want 405", rec.Code)
+	}
+}

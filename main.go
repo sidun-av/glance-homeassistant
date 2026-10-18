@@ -10,6 +10,7 @@ import (
 	"log"
 	"math"
 	"math/bits"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -568,8 +569,15 @@ func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
 // no-store: the map changes as the robot drives, and the popover refetches
 // it while cleaning. Deliberately no CORS header (like /art): the popover
 // loads it as a plain <img>, and with one any web page open in the browser
-// could fetch() the home's floor plan and read its pixels.
+// could fetch() the home's floor plan and read its pixels. The body is
+// served from this service's origin, so only a raster image type passes
+// (no SVG: opened directly it could run script here), with nosniff.
 func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	id := r.URL.Query().Get("entity_id")
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -594,8 +602,14 @@ func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
 	if ctype == "" {
 		ctype = http.DetectContentType(body)
 	}
+	if mt, _, _ := mime.ParseMediaType(ctype); !strings.HasPrefix(mt, "image/") || mt == "image/svg+xml" {
+		log.Printf("camera %s from %s: upstream sent %q, not a raster image", id, r.RemoteAddr, ctype)
+		http.Error(w, "map camera unavailable", http.StatusBadGateway)
+		return
+	}
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(body)
 }
 

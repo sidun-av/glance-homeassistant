@@ -386,3 +386,22 @@ func TestFetchStates_ParsesVacuumAttributes(t *testing.T) {
 		t.Errorf("vacuum.bare = %+v, want no battery/fan speed", b)
 	}
 }
+
+func TestFetchPicture_OverCapIsAnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		if r.URL.Path == "/big" {
+			w.Write(make([]byte, maxPicture+1))
+			return
+		}
+		w.Write(make([]byte, maxPicture))
+	}))
+	defer server.Close()
+	c := New(server.URL, "t")
+	if _, _, err := c.FetchPicture(context.Background(), "/big"); err == nil {
+		t.Error("a picture over the cap was served (it would arrive truncated)")
+	}
+	if body, _, err := c.FetchPicture(context.Background(), "/fits"); err != nil || len(body) != maxPicture {
+		t.Errorf("picture at the cap: %d bytes, %v", len(body), err)
+	}
+}
