@@ -75,6 +75,12 @@ const entityControlCSS = `
 	.ha-pop-map[data-state="ok"] img{opacity:1}
 	.ha-pop-map-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--color-text-subdue);font-size:11px}
 	.ha-pop-map[data-state="ok"] .ha-pop-map-msg{display:none}
+	/* a refresh failed after a good frame: keep the old map, but dimmed and
+	   labelled, so it never passes for the current one */
+	.ha-pop-map[data-stale="true"] img{opacity:.45}
+	.ha-pop-map-stale{display:none;position:absolute;left:6px;bottom:6px;padding:2px 6px;border-radius:var(--border-radius,5px);font-size:10px;
+	  color:var(--color-negative);background:var(--color-popover-background,var(--color-widget-background));border:1px solid var(--color-widget-content-border)}
+	.ha-pop-map[data-stale="true"] .ha-pop-map-stale{display:block}
 `
 
 // entityControlScript is a second onerror-driven IIFE, appended after
@@ -319,10 +325,14 @@ const entityControlScript = `;(function(img){
 	// refresh preloads into a new Image and swaps it in on load, so the box
 	// never flashes empty — and, being a plain image, needs no CORS on
 	// /camera. It refreshes every VAC_MAP_REFRESH_MS while the robot is out
-	// (cleaning/returning) and the tab is visible.
+	// (cleaning/returning) and the tab is visible, and once more
+	// VAC_MAP_SETTLE_MS after a run ends (out → docked/idle/paused/...), so
+	// the box ends on the finished route rather than the last mid-run
+	// frame. A refresh that fails after a good frame marks the map stale
+	// (dimmed, "Map not updated") instead of silently keeping it.
 	var VAC_LABELS={cleaning:'Cleaning',returning:'Returning to dock',docked:'Docked',paused:'Paused',idle:'Idle',error:'Error'};
 	var FAN_LABELS={closed:'Off',off:'Off'};
-	var VAC_MAP_REFRESH_MS=10000;
+	var VAC_MAP_REFRESH_MS=10000,VAC_MAP_SETTLE_MS=3000;
 	var ICON={
 		play:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>',
 		pause:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>',
@@ -357,7 +367,7 @@ const entityControlScript = `;(function(img){
 		if(speeds.length)html+='<div class="ha-pop-row"><span class="ha-pop-label">Suction</span><div class="ha-pop-chips">'+speeds.map(function(s){
 			return '<button type="button" class="ha-pop-chip" data-fan-speed="'+esc(s)+'">'+esc(fanLabel(s))+'</button>';
 		}).join('')+'</div></div>';
-		if(d.mapCamera&&cameraUrl)html+='<div class="ha-pop-map" data-state="loading"><img alt="Map of the last clean"><span class="ha-pop-map-msg">Loading map…</span></div>';
+		if(d.mapCamera&&cameraUrl)html+='<div class="ha-pop-map" data-state="loading"><img alt=""><span class="ha-pop-map-msg">Loading map…</span><span class="ha-pop-map-stale">Map not updated</span></div>';
 		html+=extrasHtml(tile);
 		panel.innerHTML=html;
 		refreshVac(panel,tile);
@@ -372,19 +382,23 @@ const entityControlScript = `;(function(img){
 		var dock=panel.querySelector('[data-vac="dock"]');if(dock)dock.disabled=d.activity==='docked'||d.activity==='returning';
 		panel.querySelectorAll('[data-fan-speed]').forEach(function(c){c.dataset.on=String(c.dataset.fanSpeed===d.fanSpeed);});
 	}
-	var vacTimer=null,vacObs=null;
+	var vacTimer=null,vacObs=null,vacSettle=null;
 	function loadMap(panel,tile){
 		var box=panel.querySelector('.ha-pop-map');if(!box)return;
 		// t= makes every refresh a new URL, so the browser's image cache
 		// can't hand back the previous frame
 		var u=cameraUrl+(cameraUrl.indexOf('?')<0?'?':'&')+'entity_id='+encodeURIComponent(tile.dataset.mapCamera)+'&t='+Date.now();
-		var next=new Image();next.alt='Map of the last clean';
+		var next=new Image();next.alt=vacRunning(tile.dataset)?'Map of the current clean':'Map of the last clean';
 		next.onload=function(){
 			if(pop!==panel)return;
 			var cur=box.querySelector('img');if(cur)box.replaceChild(next,cur);else box.insertBefore(next,box.firstChild);
-			box.dataset.state='ok';
+			box.dataset.state='ok';delete box.dataset.stale;
 		};
-		next.onerror=function(){if(pop===panel&&box.dataset.state!=='ok'){box.dataset.state='error';box.querySelector('.ha-pop-map-msg').textContent='Map unavailable';}};
+		next.onerror=function(){
+			if(pop!==panel)return;
+			if(box.dataset.state==='ok')box.dataset.stale='true';
+			else{box.dataset.state='error';box.querySelector('.ha-pop-map-msg').textContent='Map unavailable';}
+		};
 		next.src=u;
 	}
 	function startVac(panel,tile){
@@ -393,12 +407,19 @@ const entityControlScript = `;(function(img){
 			if(!root.isConnected){closePopover();return;}
 			if(!document.hidden&&vacRunning(tile.dataset))loadMap(panel,tile);
 		},VAC_MAP_REFRESH_MS);
-		vacObs=new MutationObserver(function(){refreshVac(panel,tile);});
+		var wasRunning=vacRunning(tile.dataset);
+		vacObs=new MutationObserver(function(){
+			refreshVac(panel,tile);
+			var running=vacRunning(tile.dataset);
+			if(wasRunning&&!running){clearTimeout(vacSettle);vacSettle=setTimeout(function(){loadMap(panel,tile);},VAC_MAP_SETTLE_MS);}
+			wasRunning=running;
+		});
 		vacObs.observe(tile,{attributes:true,attributeFilter:['data-activity','data-battery','data-fan-speed']});
 	}
 	function stopVac(){
 		if(vacTimer){clearInterval(vacTimer);vacTimer=null;}
 		if(vacObs){vacObs.disconnect();vacObs=null;}
+		clearTimeout(vacSettle);vacSettle=null;
 	}
 
 	var timers={};

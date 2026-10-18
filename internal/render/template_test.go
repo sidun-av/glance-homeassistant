@@ -574,6 +574,26 @@ func TestEntityControlScript_VacuumTapOpensPopover(t *testing.T) {
 	}
 }
 
+func TestEntityControlScript_VacuumMapRefreshesAfterRunAndShowsStale(t *testing.T) {
+	// smoke check: one settle refetch when the robot stops being out, and a
+	// failed refresh after a good frame marks the map stale
+	for _, want := range []string{
+		`if(wasRunning&&!running)`,
+		`VAC_MAP_SETTLE_MS`,
+		`box.dataset.stale='true'`,
+		`delete box.dataset.stale`,
+		`Map not updated`,
+		`clearTimeout(vacSettle)`,
+	} {
+		if !strings.Contains(entityControlScript, want) {
+			t.Errorf("entityControlScript missing %q", want)
+		}
+	}
+	if !strings.Contains(entityControlCSS, `.ha-pop-map[data-stale="true"] .ha-pop-map-stale{display:block}`) {
+		t.Errorf("entityControlCSS lacks the stale-map marker")
+	}
+}
+
 func TestEntityControlScript_MapNeedsNoCORS(t *testing.T) {
 	// the map is loaded as a plain image (no fetch → /camera needs no CORS)
 	for _, bad := range []string{`fetch(u`, `createObjectURL`} {
