@@ -113,4 +113,15 @@ func TestRenderLive_IncludesVacuumState(t *testing.T) {
 	if !strings.Contains(string(out), `"activity":"cleaning","battery":55,"fan_speed":"strong"`) {
 		t.Errorf("payload: %s", out)
 	}
+	low := batteryLow - 1
+	out, _ = RenderLive([]RoomCardView{{Room: "R", Devices: []DeviceView{{EntityID: "vacuum.robot", Activity: "docked", Battery: &low}}}})
+	if !strings.Contains(string(out), `"battery_low":true`) {
+		t.Errorf("battery below batteryLow not flagged: %s", out)
+	}
+}
+
+func TestBootstrapScript_HasNoBatteryThresholdOfItsOwn(t *testing.T) {
+	if !strings.Contains(bootstrapScript, `el.dataset.batteryLow=!!d.battery_low`) || strings.Contains(bootstrapScript, `d.battery<`) {
+		t.Errorf("bootstrapScript must take battery_low from /live.json, not compare against its own threshold")
+	}
 }

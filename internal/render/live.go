@@ -28,6 +28,7 @@ type LiveDevice struct {
 	PresetMode  string  `json:"preset_mode,omitempty"` // fan only
 	Activity    string  `json:"activity,omitempty"`    // vacuum only
 	Battery     *int    `json:"battery,omitempty"`     // vacuum only; absent when unknown
+	BatteryLow  bool    `json:"battery_low,omitempty"` // vacuum only; below batteryLow, decided here so the page has no threshold of its own
 	FanSpeed    string  `json:"fan_speed,omitempty"`   // vacuum only
 	// Extras: current state of each sibling control, by entity_id
 	Extras map[string]string `json:"extras,omitempty"`
@@ -84,7 +85,7 @@ func RenderLive(rooms []RoomCardView, media ...MediaView) ([]byte, error) {
 		for i, d := range r.Devices {
 			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect, CurrentTemp: d.CurrentTemp, TargetTemp: d.TargetTemp,
 				HvacMode: d.HvacMode, Percentage: d.Percentage, Oscillating: d.Oscillating, PresetMode: d.PresetMode,
-				Activity: d.Activity, Battery: d.Battery, FanSpeed: d.FanSpeed}
+				Activity: d.Activity, Battery: d.Battery, BatteryLow: d.Battery != nil && *d.Battery < batteryLow, FanSpeed: d.FanSpeed}
 			if len(d.Extras) > 0 {
 				lr.Devices[i].Extras = map[string]string{}
 				for _, e := range d.Extras {
