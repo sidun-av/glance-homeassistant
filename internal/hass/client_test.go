@@ -405,3 +405,27 @@ func TestFetchPicture_OverCapIsAnError(t *testing.T) {
 		t.Errorf("picture at the cap: %d bytes, %v", len(body), err)
 	}
 }
+
+func TestFetchFanSpeeds_OneEntity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/states/vacuum.robot":
+			fmt.Fprint(w, `{"entity_id":"vacuum.robot","state":"docked","attributes":{"fan_speed_list":["gentle","strong"]}}`)
+		case "/api/states/vacuum.down":
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	c := New(server.URL, "t")
+	if got, err := c.FetchFanSpeeds(context.Background(), "vacuum.robot"); err != nil || len(got) != 2 || got[1] != "strong" {
+		t.Errorf("vacuum.robot: %v, %v", got, err)
+	}
+	if got, err := c.FetchFanSpeeds(context.Background(), "vacuum.gone"); err != nil || got != nil {
+		t.Errorf("unknown entity: %v, %v (want no speeds, no error)", got, err)
+	}
+	if _, err := c.FetchFanSpeeds(context.Background(), "vacuum.down"); err == nil {
+		t.Error("HA error not reported")
+	}
+}

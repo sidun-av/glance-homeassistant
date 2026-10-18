@@ -721,11 +721,11 @@ func (a *app) checkFanSpeed(ctx context.Context, entityID, speed string) (int, e
 	if speed == "" {
 		return http.StatusBadRequest, fmt.Errorf("fan_speed is required")
 	}
-	states, err := a.client.FetchStates(ctx)
+	speeds, err := a.client.FetchFanSpeeds(ctx, entityID)
 	if err != nil {
-		return http.StatusBadGateway, fmt.Errorf("fetch states: %w", err)
+		return http.StatusBadGateway, fmt.Errorf("fetch %s: %w", entityID, err)
 	}
-	if !containsStr(states[entityID].FanSpeedList, speed) {
+	if !containsStr(speeds, speed) {
 		return http.StatusBadRequest, fmt.Errorf("fan_speed %q is not one of %s's fan speeds", speed, entityID)
 	}
 	return 0, nil

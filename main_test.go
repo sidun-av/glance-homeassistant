@@ -676,8 +676,15 @@ func TestEntityHandler_VacuumActions(t *testing.T) {
 	var calls []string
 	var lastBody map[string]any
 	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/states" {
-			fmt.Fprint(w, `[{"entity_id":"vacuum.robot","state":"docked","attributes":{"fan_speed":"normal","fan_speed_list":["gentle","normal","strong"]}}]`)
+		switch r.URL.Path {
+		case "/api/states":
+			t.Errorf("set_fan_speed fetched every state")
+		case "/api/states/vacuum.robot":
+			fmt.Fprint(w, `{"entity_id":"vacuum.robot","state":"docked","attributes":{"fan_speed":"normal","fan_speed_list":["gentle","normal","strong"]}}`)
+			return
+		case "/api/states/vacuum.unknown":
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"message":"Entity not found."}`)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/services/") {

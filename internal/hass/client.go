@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -577,6 +578,39 @@ func (c *Client) CallServiceData(ctx context.Context, domain, service string, da
 		return fmt.Errorf("%s.%s returned status %d", domain, service, resp.StatusCode)
 	}
 	return nil
+}
+
+// FetchFanSpeeds reads one vacuum's fan_speed_list (GET
+// /api/states/<id>) — the one attribute set_fan_speed is checked against,
+// without downloading every entity's state. An entity HA doesn't know
+// yields no speeds, not an error.
+func (c *Client) FetchFanSpeeds(ctx context.Context, entityID string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/states/"+url.PathEscape(entityID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request state: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("state returned status %d", resp.StatusCode)
+	}
+	var raw struct {
+		Attributes struct {
+			FanSpeedList []string `json:"fan_speed_list"`
+		} `json:"attributes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("parse state response: %w", err)
+	}
+	return raw.Attributes.FanSpeedList, nil
 }
 
 // maxPicture caps a picture FetchPicture reads (album art, a vacuum map).
