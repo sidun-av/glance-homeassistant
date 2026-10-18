@@ -42,6 +42,13 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+const fakeLock = `{"name":"fake","lockfileVersion":3,"requires":true,"packages":{
+"":{"name":"fake","dependencies":{"rtlib":"file:deps/rtlib"},"devDependencies":{"devtool":"file:deps/devtool"}},
+"deps/devtool":{"version":"9.9.9","dev":true,"license":"MIT"},
+"deps/rtlib":{"version":"1.2.3","license":"ISC"},
+"node_modules/devtool":{"resolved":"deps/devtool","link":true},
+"node_modules/rtlib":{"resolved":"deps/rtlib","link":true}}}`
+
 // fakeSource makes a House Control-shaped git repo whose build references
 // refs, and returns it with the commit's full sha.
 func fakeSource(t *testing.T, refs ...string) (string, string) {
@@ -49,10 +56,16 @@ func fakeSource(t *testing.T, refs ...string) (string, string) {
 	files := map[string]string{
 		"LICENSE":               "MIT License\n\nCopyright (c) test\n",
 		"README.md":             "not vendored\n",
-		"web/package.json":      `{"name":"fake","private":true,"type":"module","scripts":{"build":"node build.mjs"}}`,
-		"web/package-lock.json": `{"name":"fake","lockfileVersion":3,"requires":true,"packages":{"":{"name":"fake"}}}`,
+		"web/package.json":      `{"name":"fake","private":true,"type":"module","scripts":{"build":"node build.mjs"},"dependencies":{"rtlib":"file:deps/rtlib"},"devDependencies":{"devtool":"file:deps/devtool"}}`,
+		"web/package-lock.json": fakeLock,
 		"web/build.mjs":         buildScript,
 		"web/refs.txt":          strings.Join(refs, "\n") + "\n",
+		// A runtime dependency (bundled, so its licence ships) and a
+		// build tool (not bundled, so it does not).
+		"web/deps/rtlib/package.json":   `{"name":"rtlib","version":"1.2.3","license":"ISC"}`,
+		"web/deps/rtlib/LICENSE":        "ISC License\n\nCopyright (c) rtlib authors\n",
+		"web/deps/devtool/package.json": `{"name":"devtool","version":"9.9.9","license":"MIT"}`,
+		"web/deps/devtool/LICENSE":      "MIT License\n\nCopyright (c) devtool authors\n",
 	}
 	for name, body := range files {
 		path := filepath.Join(src, name)
@@ -96,7 +109,7 @@ func TestUpdate_VendorsTheBuild(t *testing.T) {
 	if !strings.Contains(log, "vendored house-control "+sha) {
 		t.Errorf("log lacks the vendored line:\n%s", log)
 	}
-	for _, name := range []string{"index.html", "assets/index-abc.js", "assets/index-abc.css", "LICENSE", "VERSION"} {
+	for _, name := range []string{"index.html", "assets/index-abc.js", "assets/index-abc.css", "LICENSE", "THIRD_PARTY_LICENSES", "VERSION"} {
 		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -113,6 +126,16 @@ func TestUpdate_VendorsTheBuild(t *testing.T) {
 	}
 	if license, _ := os.ReadFile(filepath.Join(out, "LICENSE")); !strings.HasPrefix(string(license), "MIT License") {
 		t.Errorf("LICENSE = %q", license)
+	}
+	third, _ := os.ReadFile(filepath.Join(out, "THIRD_PARTY_LICENSES"))
+	if !strings.Contains(string(third), "rtlib 1.2.3 (ISC)") || !strings.Contains(string(third), "Copyright (c) rtlib authors") {
+		t.Errorf("THIRD_PARTY_LICENSES lacks the runtime dependency:\n%s", third)
+	}
+	if strings.Contains(string(third), "devtool") {
+		t.Errorf("THIRD_PARTY_LICENSES names a dev dependency:\n%s", third)
+	}
+	if matches, _ := filepath.Glob(out + ".*"); len(matches) != 0 {
+		t.Errorf("staging directories left behind: %v", matches)
 	}
 	if st := git(t, src, "status", "--porcelain"); st != "M web/refs.txt" {
 		t.Errorf("the source checkout changed: %q", st)

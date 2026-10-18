@@ -275,7 +275,9 @@ firewall it so that only the Mac can reach it.
 
 **Updating the vendored build.** `internal/house/dist/` is House Control's `web/dist`, built at a
 pinned commit and embedded into the binary. Its `VERSION` file records which commit, and
-House Control's MIT `LICENSE` sits next to it. To move to another commit, check out the House
+House Control's MIT `LICENSE` sits next to it. `THIRD_PARTY_LICENSES` carries the licences of the
+libraries bundled into it (three.js, MIT; Lucide, ISC, with the Feather MIT notice it includes),
+because the minified build drops their `@license` banners. To move to another commit, check out the House
 Control source next to this repo (or point `HOUSE_CONTROL_SRC` at it) and run:
 
 ```bash
@@ -286,7 +288,11 @@ go test ./...
 The script exports that commit's `web/` with `git archive` into a temporary directory (your
 checkout's working tree and `node_modules` are not used or changed), runs `npm ci` and
 `npm run build` there, and replaces `internal/house/dist/` with the result minus the demo
-`plans/`. It refuses a build whose `index.html` loads anything other than `./assets/…`. That
+`plans/`. `THIRD_PARTY_LICENSES` is regenerated from the `LICENSE` file of every non-dev package in
+the commit's `web/package-lock.json`. The new build is copied next to the old one first and then
+swapped in by renaming, so a failed or interrupted run leaves the previous build in place. It
+refuses a build whose `index.html` loads anything other than `./assets/…`, and a runtime package
+without a `LICENSE` file. That
 needs git and Node; the Docker build does not.
 
 ## Setup

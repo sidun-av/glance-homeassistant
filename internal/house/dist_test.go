@@ -44,6 +44,17 @@ func TestDistFS_IsUsable(t *testing.T) {
 	if license, err := fs.ReadFile(d, "LICENSE"); err != nil || !strings.Contains(string(license), "MIT License") {
 		t.Errorf("LICENSE: %v, want House Control's MIT licence", err)
 	}
+	// The minified bundle has lost the libraries' @license banners, so
+	// their notices must travel in THIRD_PARTY_LICENSES.
+	third, err := fs.ReadFile(d, "THIRD_PARTY_LICENSES")
+	if err != nil {
+		t.Fatalf("THIRD_PARTY_LICENSES: %v", err)
+	}
+	for _, want := range []string{"three ", "three.js authors", "lucide ", "Lucide Contributors", "Cole Bemis"} {
+		if !strings.Contains(string(third), want) {
+			t.Errorf("THIRD_PARTY_LICENSES lacks %q", want)
+		}
+	}
 	if _, err := fs.Stat(d, "plans"); err == nil {
 		t.Errorf("the demo plans/ were vendored")
 	}
@@ -68,7 +79,7 @@ func TestDistFS_ServedByThePage(t *testing.T) {
 			t.Errorf("/house/%s: %d", m[1], rec.Code)
 		}
 	}
-	for _, path := range []string{"/house/VERSION", "/house/LICENSE"} {
+	for _, path := range []string{"/house/VERSION", "/house/LICENSE", "/house/THIRD_PARTY_LICENSES"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusNotFound {

@@ -8,8 +8,15 @@
 # checkout's working tree, node_modules or local edits leaks in), runs
 # `npm ci && npm run build` there, and replaces internal/house/dist/ with
 # the result: web/dist without the demo plans/, plus House Control's MIT
-# LICENSE and a VERSION file naming the commit. The checkout itself is
-# never modified.
+# LICENSE, a THIRD_PARTY_LICENSES file and a VERSION file naming the
+# commit. The checkout itself is never modified.
+#
+# THIRD_PARTY_LICENSES carries the licence text of every package the build
+# can bundle: each non-dev entry of web/package-lock.json (three, lucide
+# and whatever they pull in), read from the LICENSE file npm installed.
+# The minifier strips the libraries' own @license banners, so this file is
+# what keeps their copyright notices with every copy. A runtime package
+# without a LICENSE file stops the script.
 #
 # The build keeps House Control's own Vite `base: './'`: every asset is
 # referenced as ./assets/…, and the widget server serves the page with a
@@ -45,7 +52,8 @@ sha=$(git -C "$src" rev-parse --verify --quiet "$commit^{commit}") ||
 	die "$commit is not a commit in $src"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/house-dist.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT INT TERM
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 130' INT TERM
 
 git -C "$src" archive "$sha" web LICENSE | tar -x -C "$tmp"
 [ -f "$tmp/LICENSE" ] || die "$sha has no LICENSE"
@@ -72,12 +80,47 @@ for ref in $refs; do
 	esac
 done
 
+# The licence of every package npm installed for runtime (not dev) use.
+node - "$tmp/web" >"$dist/THIRD_PARTY_LICENSES" <<'EOF_NODE' || die "cannot collect the third-party licences"
+const fs = require('fs'), path = require('path');
+const web = process.argv[2];
+const lock = JSON.parse(fs.readFileSync(path.join(web, 'package-lock.json'), 'utf8'));
+const out = [];
+for (const [key, entry] of Object.entries(lock.packages || {})) {
+	// A linked (file:) package keeps its dev flag on the link's target.
+	const real = entry.link ? lock.packages[entry.resolved] || {} : entry;
+	if (!key.startsWith('node_modules/') || real.dev) continue;
+	const dir = path.join(web, key);
+	const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+	const file = fs.readdirSync(dir).filter(f => /^licen[cs]e(\.(md|txt))?$/i.test(f)).sort()[0];
+	if (!file) {
+		console.error(`update.sh: ${key} has no LICENSE file`);
+		process.exit(1);
+	}
+	out.push(`${pkg.name} ${pkg.version} (${pkg.license || entry.license || 'see below'})\n` +
+		`${'-'.repeat(72)}\n${fs.readFileSync(path.join(dir, file), 'utf8').trim()}\n`);
+}
+out.sort();
+process.stdout.write('Third-party software bundled into this build of House Control\'s web UI.\n\n' +
+	(out.length ? out.join('\n') : 'None.\n'));
+EOF_NODE
+
 cp "$tmp/LICENSE" "$dist/LICENSE"
 printf 'house-control %s\nsource: github.com/sidun-av/house-control (branch %s)\nbuilt: %s\n' \
 	"$sha" "$branch" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$dist/VERSION"
 
+# Copy next to $out first, then swap by rename: a failed or interrupted
+# copy leaves the previous build in place.
 mkdir -p "$(dirname "$out")"
-rm -rf "$out"
-cp -R "$dist" "$out"
+new=$out.new.$$
+old=$out.old.$$
+trap 'rm -rf "$tmp" "$new" "$old"' EXIT
+trap 'exit 130' INT TERM
+cp -R "$dist" "$new"
+if [ -e "$out" ]; then
+	mv "$out" "$old"
+fi
+mv "$new" "$out" || { mv "$old" "$out"; die "cannot move the build into $out"; }
+rm -rf "$old"
 
 echo "vendored house-control $sha into $out ($(du -sk "$out" | cut -f1) KiB)"
