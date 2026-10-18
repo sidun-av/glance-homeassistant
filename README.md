@@ -240,7 +240,7 @@ container's own port.
 | `GET /house/plan` | The stored plan, filtered to the HA-linked devices, with an `ETag`. Returns 404 `{"error":"no_plan"}` before the first upload. |
 | `PUT /house/plan` | Upload a plan. Needs `Authorization: Bearer <HOUSE_PLAN_SECRET>`. The rules are listed below. |
 | `GET /house/state` | Current state of the plan's devices, keyed by plan id, plus `planVersion` (the plan's ETag; open views reload when it changes). Returns 503 `{"error":"unavailable"}` when Home Assistant is down or slow. |
-| `POST /house/command` | `{"kind","id","patch","state"}` with `Content-Type: application/json`. Accepted only for a device in the served plan, and only for patch keys and values that are allowed for its kind. Add `?dry_run=1` to get back the Home Assistant service calls it would make, without making them. |
+| `POST /house/command` | `{"kind","id","patch","state"}` with `Content-Type: application/json`. Accepted only for a device in the served plan, and only for patch keys and values that are allowed for its kind. Add `?dry_run=1` to get back the Home Assistant service calls it would make, without making them. The server as a whole takes about 10 commands a second (bursts of 30); past that it answers 429 `{"error":"rate_limited"}`. |
 
 `PUT /house/plan` rules:
 

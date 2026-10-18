@@ -447,6 +447,100 @@ func TestCommand_DropsTheStateCache(t *testing.T) {
 	}
 }
 
+// Commands validate against the cached states: a burst of them is not one
+// full states download each, while a state read after a command still is.
+func TestCommand_BurstSharesOneStatesRead(t *testing.T) {
+	ha := newFakeHA()
+	_, mux := newTestHandler(t, ha, true)
+	for i := 0; i < 5; i++ {
+		if rec := command(mux, `{"kind":"light","id":"a.lamp","patch":{"on":true}}`); rec.Code != http.StatusOK {
+			t.Fatalf("command %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if ha.fetches != 1 {
+		t.Errorf("FetchRawStates called %d times for 5 commands within 2 s, want 1", ha.fetches)
+	}
+	do(mux, http.MethodGet, "/house/state", "")
+	do(mux, http.MethodGet, "/house/state", "")
+	if ha.fetches != 2 {
+		t.Errorf("FetchRawStates called %d times, want one more for the reads after the commands", ha.fetches)
+	}
+}
+
+func TestCommand_RateLimited(t *testing.T) {
+	ha := newFakeHA()
+	h, mux := newTestHandler(t, ha, true)
+	now := time.Unix(1_700_000_000, 0)
+	h.clock = func() time.Time { return now }
+	dry := func() *httptest.ResponseRecorder {
+		return do(mux, http.MethodPost, "/house/command?dry_run=1", `{"kind":"light","id":"a.lamp","patch":{"on":true}}`, "Content-Type", "application/json")
+	}
+	for i := 0; i < commandBurst; i++ {
+		if rec := dry(); rec.Code != http.StatusOK {
+			t.Fatalf("command %d of the burst: %d", i, rec.Code)
+		}
+	}
+	rec := dry()
+	if rec.Code != http.StatusTooManyRequests || errorBody(t, rec)["error"] != "rate_limited" || rec.Header().Get("Retry-After") != "1" {
+		t.Fatalf("past the burst: %d %s %v", rec.Code, rec.Body.String(), rec.Header())
+	}
+	now = now.Add(time.Second)
+	for i := 0; i < commandRate; i++ {
+		if rec := dry(); rec.Code != http.StatusOK {
+			t.Fatalf("a second later, command %d: %d", i, rec.Code)
+		}
+	}
+	if rec := dry(); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("past the refill: %d", rec.Code)
+	}
+}
+
+// blockingHA hangs every service call until released.
+type blockingHA struct {
+	*fakeHA
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingHA) CallServiceData(ctx context.Context, domain, service string, data map[string]any) error {
+	b.entered <- struct{}{}
+	<-b.release
+	return b.fakeHA.CallServiceData(ctx, domain, service, data)
+}
+
+func TestCommand_QueuedCommandGivesUpWithItsContext(t *testing.T) {
+	ha := &blockingHA{fakeHA: newFakeHA(), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	h, mux := newTestHandler(t, ha.fakeHA, true)
+	h.HA = ha
+	body := `{"kind":"light","id":"a.lamp","patch":{"on":true}}`
+	first := make(chan int)
+	go func() { first <- command(mux, body).Code }()
+	<-ha.entered // the first command holds the lamp
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/house/command", strings.NewReader(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { mux.ServeHTTP(rec, req); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the queued command ignored its context")
+	}
+	if rec.Code != http.StatusBadGateway || errorBody(t, rec)["error"] != "unavailable" {
+		t.Errorf("queued command: %d %s", rec.Code, rec.Body.String())
+	}
+	close(ha.release)
+	if code := <-first; code != http.StatusOK {
+		t.Errorf("first command: %d", code)
+	}
+	if n := ha.callCount(); n != 1 {
+		t.Errorf("HA got %d calls, want only the first command's", n)
+	}
+}
+
 func TestCommand_RejectsUnknownAndForeign(t *testing.T) {
 	ha := newFakeHA()
 	_, mux := newTestHandler(t, ha, true)

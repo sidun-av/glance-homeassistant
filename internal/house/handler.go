@@ -53,23 +53,30 @@ type Handler struct {
 	statesMu  sync.Mutex
 	states    map[string]hass.RawState
 	statesAt  time.Time
+	stale     bool // a command ran since states was read
 	batteryMu sync.Mutex
 	batteryOf string            // plan ETag the battery sensors were looked up for
 	batteries map[string]string // vacuum → battery sensor ("" none)
 	batteryOK bool              // the lookup for batteryOf succeeded
 	batteryAt time.Time         // when it last failed
 	devMu     sync.Mutex
-	devLocks  map[string]*sync.Mutex
+	devLocks  map[string]chan struct{}
+	commands  tokenBucket
 
 	clock func() time.Time // nil: time.Now (tests set it)
 }
 
 const (
-	statesTTL       = 2 * time.Second
-	batteryBudget   = 5 * time.Second
-	batteryRetry    = time.Minute
-	stateBudget     = 5 * time.Second
-	commandBudget   = 10 * time.Second
+	statesTTL     = 2 * time.Second
+	batteryBudget = 5 * time.Second
+	batteryRetry  = time.Minute
+	stateBudget   = 5 * time.Second
+	commandBudget = 10 * time.Second
+	// commandRate and commandBurst bound /house/command for the whole
+	// process: far more than a person tapping and dragging sliders sends,
+	// far less than a script in a loop.
+	commandRate     = 10 // per second
+	commandBurst    = 30
 	maxCommandBytes = 8 << 10
 )
 
@@ -215,7 +222,7 @@ func (h *Handler) state(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), stateBudget)
 	defer cancel()
-	states, err := h.rawStates(ctx)
+	states, err := h.rawStates(ctx, true)
 	if err != nil {
 		log.Printf("house: state: %v", err)
 		writeError(w, http.StatusServiceUnavailable, "unavailable")
@@ -227,26 +234,30 @@ func (h *Handler) state(w http.ResponseWriter, r *http.Request) {
 }
 
 // rawStates is every entity's state, shared by all viewers for statesTTL
-// (ten open dashboards polling every 10 s are one HA read, not ten).
-func (h *Handler) rawStates(ctx context.Context) (map[string]hass.RawState, error) {
+// (ten open dashboards polling every 10 s are one HA read, not ten). With
+// fresh, a read made before the last command is not used: the panel's
+// follow-up polls must see what the command did. A command's own
+// validation passes fresh=false; it only needs the entity's attributes,
+// so a burst of commands is not one full states download each.
+func (h *Handler) rawStates(ctx context.Context, fresh bool) (map[string]hass.RawState, error) {
 	h.statesMu.Lock()
 	defer h.statesMu.Unlock()
-	if h.states != nil && time.Since(h.statesAt) < statesTTL {
+	if h.states != nil && time.Since(h.statesAt) < statesTTL && !(fresh && h.stale) {
 		return h.states, nil
 	}
 	states, err := h.HA.FetchRawStates(ctx)
 	if err != nil {
 		return nil, err
 	}
-	h.states, h.statesAt = states, time.Now()
+	h.states, h.statesAt, h.stale = states, time.Now(), false
 	return states, nil
 }
 
-// dropStates makes the next read ask HA again: after a command, the panel's
-// follow-up polls must see what the command did.
-func (h *Handler) dropStates() {
+// markStale makes the next fresh read ask HA again. It waits out a fetch
+// in flight, so no snapshot taken before the command survives it.
+func (h *Handler) markStale() {
 	h.statesMu.Lock()
-	h.states = nil
+	h.stale = true
 	h.statesMu.Unlock()
 }
 
@@ -327,6 +338,11 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type")
 		return
 	}
+	if !h.commands.allow(h.now(), commandRate, commandBurst) {
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxCommandBytes+1))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request")
@@ -369,7 +385,7 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), commandBudget)
 	defer cancel()
-	states, err := h.rawStates(ctx)
+	states, err := h.rawStates(ctx, false)
 	if err != nil {
 		log.Printf("house: %s %s %s → error: %v", d.Kind, d.AppID, strings.Join(keys, ","), err)
 		writeError(w, http.StatusBadGateway, "unavailable")
@@ -397,11 +413,18 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Commands to one entity run one after another, in arrival order.
+	// Commands to one entity run one after another, in arrival order; one
+	// that waits past its deadline (HA hanging on the one before) gives up.
 	lock := h.deviceLock(d.EntityID)
-	lock.Lock()
-	defer lock.Unlock()
-	defer h.dropStates()
+	select {
+	case lock <- struct{}{}:
+	case <-ctx.Done():
+		log.Printf("house: %s %s %s → error: gave up waiting for the previous command: %v", d.Kind, d.AppID, strings.Join(keys, ","), ctx.Err())
+		writeError(w, http.StatusBadGateway, "unavailable")
+		return
+	}
+	defer func() { <-lock }()
+	defer h.markStale()
 	for _, c := range calls {
 		if err := h.HA.CallServiceData(ctx, c.Domain, c.Service, c.Data); err != nil {
 			log.Printf("house: %s %s %s → error: %v", d.Kind, d.AppID, strings.Join(keys, ","), err)
@@ -413,16 +436,41 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (h *Handler) deviceLock(entity string) *sync.Mutex {
+// deviceLock is the entity's one-slot queue: send to take it, receive to
+// let the next command in.
+func (h *Handler) deviceLock(entity string) chan struct{} {
 	h.devMu.Lock()
 	defer h.devMu.Unlock()
 	if h.devLocks == nil {
-		h.devLocks = map[string]*sync.Mutex{}
+		h.devLocks = map[string]chan struct{}{}
 	}
 	if h.devLocks[entity] == nil {
-		h.devLocks[entity] = &sync.Mutex{}
+		h.devLocks[entity] = make(chan struct{}, 1)
 	}
 	return h.devLocks[entity]
+}
+
+// tokenBucket is a plain token bucket; the zero value starts full.
+type tokenBucket struct {
+	mu     sync.Mutex
+	tokens float64
+	last   time.Time
+}
+
+func (b *tokenBucket) allow(now time.Time, rate, burst float64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.last.IsZero() {
+		b.tokens = burst
+	} else if dt := now.Sub(b.last).Seconds(); dt > 0 {
+		b.tokens = min(burst, b.tokens+dt*rate)
+	}
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
 }
 
 // checkPatch returns the patch keys whose values the device or its entity
