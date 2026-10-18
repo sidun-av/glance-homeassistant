@@ -39,6 +39,7 @@ house:
   plan_file: /data/house-plan.json   # env: HOUSE_PLAN_FILE — where the uploaded plan is kept
   secret: ""   # env: HOUSE_PLAN_SECRET — bearer secret for uploads; empty = uploads disabled; surrounding whitespace is ignored
   lang: en   # env: HOUSE_LANG — "en" or "ru": the switch, the Dock card and the 3D view
+  frame_ancestors: ""   # env: HOUSE_FRAME_ANCESTORS — who may embed the 3D page (CSP sources); empty = 'self', plus public_url's host on any port when it is an origin
 
 layout: cards
 layout_file: /data/floorplan.json   # env: LAYOUT_FILE — the browser editor (<public_url>/edit) saves here; overrides floorplan: below when present   # env: LAYOUT — "cards" (per-room cards with temperature chart) or "floorplan" (schematic map, badges only)

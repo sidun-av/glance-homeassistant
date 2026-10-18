@@ -35,6 +35,9 @@ type HouseConfig struct {
 	// with its newline, or pasted with a CR), as push.sh does on the Mac.
 	Secret string `yaml:"secret"` // env: HOUSE_PLAN_SECRET
 	Lang   string `yaml:"lang"`   // env: HOUSE_LANG — "en" (default) or "ru", for the switch, the invite and the 3D view
+	// FrameAncestors replaces the 3D page's CSP frame-ancestors list (see
+	// houseFrameAncestors); empty derives it from public_url.
+	FrameAncestors string `yaml:"frame_ancestors"` // env: HOUSE_FRAME_ANCESTORS
 }
 
 // DevicesConfig picks which non-light entities get a tile on the map.
@@ -178,6 +181,10 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.House.Lang != "en" && cfg.House.Lang != "ru" {
 		return nil, fmt.Errorf("house.lang must be \"en\" or \"ru\", got %q", cfg.House.Lang)
 	}
+	cfg.House.FrameAncestors = strings.Join(strings.Fields(cfg.House.FrameAncestors), " ")
+	if strings.ContainsAny(cfg.House.FrameAncestors, ";,") {
+		return nil, fmt.Errorf("house.frame_ancestors must be a space-separated CSP source list, got %q", cfg.House.FrameAncestors)
+	}
 	if cfg.Layout != "cards" && cfg.Layout != "floorplan" {
 		return nil, fmt.Errorf("layout must be \"cards\" or \"floorplan\", got %q", cfg.Layout)
 	}
@@ -313,6 +320,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("HOUSE_LANG"); ok {
 		cfg.House.Lang = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_FRAME_ANCESTORS"); ok {
+		cfg.House.FrameAncestors = v
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT"); ok {
 		cfg.Layout = v

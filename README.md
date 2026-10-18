@@ -273,6 +273,17 @@ and send `/house/command` with no login at all, bypassing the proxy's auth, and 
 travels over plain HTTP there. If that matters, bind the published port to one interface or
 firewall it so that only the Mac can reach it.
 
+**Who can embed the 3D page.** `/house/` is sent with a `Content-Security-Policy: frame-ancestors`
+header, so other sites cannot frame its controls (clickjacking). With a path `public_url` such as
+`/ha-widget`, Glance and the iframe share one origin through the proxy, and the header is
+`frame-ancestors 'self'`. With an origin `public_url` such as `http://192.168.1.50:8081`, Glance
+(say `:3000`) is a different origin from the container's port, so the header also allows any port
+on that host: `frame-ancestors 'self' http://192.168.1.50:* https://192.168.1.50:*`. If Glance runs
+on another host name than the one in `public_url`, or `public_url` names an IPv6 address, set
+`HOUSE_FRAME_ANCESTORS` to the CSP source list to use instead, e.g. `'self' http://glance.lan:3000`.
+Otherwise the 3D view stays blank. A header your reverse proxy adds (`X-Frame-Options: DENY`,
+`frame-ancestors 'none'`) blocks it the same way; `SAMEORIGIN` is fine with a path `public_url`.
+
 **Updating the vendored build.** `internal/house/dist/` is House Control's `web/dist`, built at a
 pinned commit and embedded into the binary. Its `VERSION` file records which commit, and
 House Control's MIT `LICENSE` sits next to it. `THIRD_PARTY_LICENSES` carries the licences of the
@@ -410,6 +421,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `HOUSE_PLAN_FILE` | `house.plan_file` | `/data/house-plan.json` | Where the uploaded House Control plan is kept (see "3D home") |
 | `HOUSE_PLAN_SECRET` | `house.secret` | `""` (uploads off) | Bearer secret for `PUT /house/plan`; empty disables uploads |
 | `HOUSE_LANG` | `house.lang` | `en` | Language of the Plan/3D switch, the Dock card and the 3D view: `en` or `ru` |
+| `HOUSE_FRAME_ANCESTORS` | `house.frame_ancestors` | `""` (from `public_url`) | CSP `frame-ancestors` sources that may embed the 3D page, replacing the derived list (see "Who can embed the 3D page") |
 
 The service's own listen port and config-file path aren't `config.yml` fields — they're read from
 the environment before any config is loaded, so they're always plain environment variables:

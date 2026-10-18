@@ -950,6 +950,35 @@ func TestNewMux_HousePageUsesPublicURL(t *testing.T) {
 	}
 }
 
+// Who may frame the 3D page follows from where the browser reaches it: the
+// proxy path is Glance's own origin, the LAN port is framed by Glance on
+// another port of the same host.
+func TestHouseFrameAncestors(t *testing.T) {
+	for _, c := range []struct{ publicURL, override, want string }{
+		{"", "", "'self'"},
+		{"/ha-widget", "", "'self'"},
+		{"http://192.168.1.50:8081", "", "'self' http://192.168.1.50:* https://192.168.1.50:*"},
+		{"https://widget.example.invalid/", "", "'self' http://widget.example.invalid:* https://widget.example.invalid:*"},
+		{"http://[fd00::5]:8081", "", "'self'"},
+		{"http://192.168.1.50:8081", "'self' http://glance.lan:3000", "'self' http://glance.lan:3000"},
+	} {
+		cfg := testConfig("http://ha.invalid")
+		cfg.PublicURL, cfg.House.FrameAncestors = c.publicURL, c.override
+		if got := houseFrameAncestors(cfg); got != c.want {
+			t.Errorf("%q/%q: %q, want %q", c.publicURL, c.override, got, c.want)
+		}
+	}
+	cfg := testConfig("http://ha.invalid")
+	cfg.PublicURL = "http://192.168.1.50:8081"
+	a := newApp(cfg)
+	a.houseDist = fstest.MapFS{"index.html": {Data: []byte("<html><head></head></html>")}}
+	rec := httptest.NewRecorder()
+	newMux(cfg, a).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/house/", nil))
+	if csp := rec.Header().Get("Content-Security-Policy"); csp != "frame-ancestors 'self' http://192.168.1.50:* https://192.168.1.50:*" {
+		t.Errorf("served Content-Security-Policy = %q", csp)
+	}
+}
+
 // The Plan | 3D switch appears only once public_url is set and a plan has
 // been uploaded; before that the widget is exactly what it was.
 func TestWidgetHandler_HouseSwitchNeedsPlanAndPublicURL(t *testing.T) {

@@ -603,6 +603,30 @@ home_assistant:
 	}
 }
 
+func TestLoadConfig_HouseFrameAncestors(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+house:
+  frame_ancestors: "  'self'   http://glance.lan:3000 "
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil || cfg.House.FrameAncestors != "'self' http://glance.lan:3000" {
+		t.Errorf("from YAML: %q %v", cfg.House.FrameAncestors, err)
+	}
+	t.Setenv("HOUSE_FRAME_ANCESTORS", "http://a.lan:3000")
+	if cfg, err = LoadConfig(path); err != nil || cfg.House.FrameAncestors != "http://a.lan:3000" {
+		t.Errorf("from env: %q %v", cfg.House.FrameAncestors, err)
+	}
+	for _, bad := range []string{"'self'; script-src *", "http://a.lan, http://b.lan"} {
+		t.Setenv("HOUSE_FRAME_ANCESTORS", bad)
+		if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "house.frame_ancestors") {
+			t.Errorf("%q: err = %v, want one mentioning house.frame_ancestors", bad, err)
+		}
+	}
+}
+
 func TestLoadConfig_HouseLangInvalid(t *testing.T) {
 	path := writeTempConfig(t, `
 home_assistant:

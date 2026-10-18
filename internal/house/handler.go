@@ -51,6 +51,10 @@ type Handler struct {
 	Base string
 	Lang string // "en" or "ru", handed to the page
 	Dist fs.FS  // House Control's build: index.html and assets/
+	// FrameAncestors is the page's CSP frame-ancestors source list: the
+	// origins allowed to embed it (its controls must not be clickjackable
+	// from any site a LAN visitor opens). Empty means "'self'".
+	FrameAncestors string
 
 	statesMu  sync.Mutex
 	states    map[string]hass.RawState
@@ -632,6 +636,11 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
+	ancestors := h.FrameAncestors
+	if ancestors == "" {
+		ancestors = "'self'"
+	}
+	w.Header().Set("Content-Security-Policy", "frame-ancestors "+ancestors)
 	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodGet {
 		io.WriteString(w, page)

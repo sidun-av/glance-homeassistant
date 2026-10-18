@@ -1317,6 +1317,25 @@ func (a *app) liveHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
+// houseFrameAncestors is who may embed the 3D page (CSP frame-ancestors).
+// A path public_url (behind the reverse proxy) puts the iframe on Glance's
+// own origin, so 'self' is exact. An origin public_url (the container's
+// LAN port, e.g. http://host:8081) is framed by Glance on another port of
+// that host (e.g. :3000), a different origin, so that host on any port is
+// allowed too. house.frame_ancestors replaces either for other layouts.
+func houseFrameAncestors(cfg *Config) string {
+	if cfg.House.FrameAncestors != "" {
+		return cfg.House.FrameAncestors
+	}
+	u, err := url.Parse(cfg.PublicURL)
+	// CSP host sources cannot name an IPv6 literal.
+	if err != nil || u.Scheme == "" || u.Hostname() == "" || strings.Contains(u.Hostname(), ":") {
+		return "'self'"
+	}
+	host := u.Hostname()
+	return "'self' http://" + host + ":* https://" + host + ":*"
+}
+
 // houseHandler serves the 3D view's page and API. Its Base is the path the
 // browser reaches it by (through public_url), whichever prefix the request
 // actually arrives with.
@@ -1328,6 +1347,8 @@ func houseHandler(cfg *Config, a *app) *house.Handler {
 		Base:   strings.TrimRight(cfg.PublicURL, "/") + "/house",
 		Lang:   cfg.House.Lang,
 		Dist:   a.houseDist,
+
+		FrameAncestors: houseFrameAncestors(cfg),
 	}
 }
 

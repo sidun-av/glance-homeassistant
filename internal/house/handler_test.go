@@ -711,7 +711,15 @@ func TestPage_InjectsBootAndBase(t *testing.T) {
 		if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Errorf("%s: no nosniff", path)
 		}
+		if csp := rec.Header().Get("Content-Security-Policy"); csp != "frame-ancestors 'self'" {
+			t.Errorf("%s: Content-Security-Policy = %q", path, csp)
+		}
 	}
+	h.FrameAncestors = "'self' http://glance.lan:3000"
+	if csp := do(mux, http.MethodGet, "/house/", "").Header().Get("Content-Security-Policy"); csp != "frame-ancestors 'self' http://glance.lan:3000" {
+		t.Errorf("with FrameAncestors: Content-Security-Policy = %q", csp)
+	}
+	h.FrameAncestors = ""
 	rec := do(mux, http.MethodGet, "/ha-widget/house/assets/a.js", "")
 	if rec.Code != http.StatusOK || rec.Body.String() != "console.log(1)" {
 		t.Fatalf("asset: %d %q", rec.Code, rec.Body.String())
