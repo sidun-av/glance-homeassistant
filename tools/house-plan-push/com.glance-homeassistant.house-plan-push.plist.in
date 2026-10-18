@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Rendered by install.sh, which fills in the placeholders. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>@LABEL@</string>
+	@USERNAME@
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>@PUSH_SH@</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>@HOME@</string>
+		<key>PLAN_FILE</key>
+		<string>@PLAN_FILE@</string>
+		<key>CONF_DIR</key>
+		<string>@CONF_DIR@</string>
+		<key>STATE_DIR</key>
+		<string>@STATE_DIR@</string>
+		<key>LOG_FILE</key>
+		<string>@LOG_FILE@</string>
+	</dict>
+	<key>WatchPaths</key>
+	<array>
+		<string>@PLAN_FILE@</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>300</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>@LOG_FILE@</string>
+	<key>StandardErrorPath</key>
+	<string>@LOG_FILE@</string>
+</dict>
+</plist>
