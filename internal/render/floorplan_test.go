@@ -378,3 +378,48 @@ func TestRenderNowPlayingRow_RoomTitle(t *testing.T) {
 		t.Errorf("player without an Area uses its own name as the title: %s", none)
 	}
 }
+
+func TestRenderFloorplanRoom_VacuumTile(t *testing.T) {
+	bat, low := 80, 12
+	r := RoomCardView{Room: "Hall", Devices: []DeviceView{
+		{EntityID: "vacuum.robot", Name: "Robot", Domain: "vacuum", IconSVG: "<svg/>", Effect: "vacuum", Activity: "docked", Battery: &bat,
+			FanSpeed: "normal", FanSpeeds: []string{"gentle", "normal"}, SupportsLocate: true, MapCamera: "camera.robot_map"},
+		{EntityID: "vacuum.low", Name: "Low", Domain: "vacuum", IconSVG: "<svg/>", Effect: "vacuum", Activity: "cleaning", On: true, Battery: &low},
+		{EntityID: "vacuum.bare", Name: "Bare", Domain: "vacuum", IconSVG: "<svg/>", Effect: "vacuum", Activity: "idle"},
+	}}
+	html := renderFloorplanRoom("k", r)
+	for _, want := range []string{
+		`data-effect="vacuum" data-domain="vacuum" data-activity="docked" data-battery="80" data-fan-speed="normal" data-fan-speeds="[&#34;gentle&#34;,&#34;normal&#34;]" data-locate="true" data-map-camera="camera.robot_map"`,
+		`data-activity="cleaning" data-battery="12" data-battery-low="true"`,
+		`data-entity-id="vacuum.bare" data-on="false" data-effect="vacuum" data-domain="vacuum" data-activity="idle" title="Bare"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q in %s", want, html)
+		}
+	}
+	// a vacuum casts no beam, so it must not shorten the room's light beams
+	if got := beamReach(RoomCardView{Lights: []LightView{{}}, Devices: r.Devices}); got != 0.92 {
+		t.Errorf("beamReach with a vacuum = %v, want 0.92", got)
+	}
+}
+
+func TestFloorplanCSS_VacuumStates(t *testing.T) {
+	for _, want := range []string{
+		`[data-effect="vacuum"][data-activity="cleaning"]::before`,
+		`[data-effect="vacuum"][data-activity="returning"]::after`,
+		`[data-effect="vacuum"][data-activity="docked"][data-battery]::after`,
+		`[data-effect="vacuum"][data-activity="paused"]::after`,
+		`[data-effect="vacuum"][data-activity="error"]`,
+	} {
+		if !strings.Contains(floorplanCSS, want) {
+			t.Errorf("floorplan CSS missing %q", want)
+		}
+	}
+}
+
+func TestRenderWidget_CameraURL(t *testing.T) {
+	out := RenderWidget(WidgetData{CameraURL: "/ha-widget/camera"})
+	if !strings.Contains(out, `data-camera-url="/ha-widget/camera"`) {
+		t.Errorf("widget root lacks data-camera-url")
+	}
+}

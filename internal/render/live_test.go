@@ -103,3 +103,14 @@ func TestRenderLive_IncludesMedia(t *testing.T) {
 		t.Errorf("payload: %s", out)
 	}
 }
+
+func TestRenderLive_IncludesVacuumState(t *testing.T) {
+	bat := 55
+	out, err := RenderLive([]RoomCardView{{Room: "R", Devices: []DeviceView{{EntityID: "vacuum.robot", On: true, Effect: "vacuum", Activity: "cleaning", Battery: &bat, FanSpeed: "strong"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"activity":"cleaning","battery":55,"fan_speed":"strong"`) {
+		t.Errorf("payload: %s", out)
+	}
+}

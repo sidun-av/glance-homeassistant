@@ -26,6 +26,9 @@ type LiveDevice struct {
 	Percentage  int     `json:"percentage"`            // fan only; meaningful when data-has-speed is true
 	Oscillating bool    `json:"oscillating,omitempty"` // fan only
 	PresetMode  string  `json:"preset_mode,omitempty"` // fan only
+	Activity    string  `json:"activity,omitempty"`    // vacuum only
+	Battery     *int    `json:"battery,omitempty"`     // vacuum only; absent when unknown
+	FanSpeed    string  `json:"fan_speed,omitempty"`   // vacuum only
 	// Extras: current state of each sibling control, by entity_id
 	Extras map[string]string `json:"extras,omitempty"`
 }
@@ -80,7 +83,8 @@ func RenderLive(rooms []RoomCardView, media ...MediaView) ([]byte, error) {
 		}
 		for i, d := range r.Devices {
 			lr.Devices[i] = LiveDevice{EntityID: d.EntityID, On: d.On, Effect: d.Effect, CurrentTemp: d.CurrentTemp, TargetTemp: d.TargetTemp,
-				HvacMode: d.HvacMode, Percentage: d.Percentage, Oscillating: d.Oscillating, PresetMode: d.PresetMode}
+				HvacMode: d.HvacMode, Percentage: d.Percentage, Oscillating: d.Oscillating, PresetMode: d.PresetMode,
+				Activity: d.Activity, Battery: d.Battery, FanSpeed: d.FanSpeed}
 			if len(d.Extras) > 0 {
 				lr.Devices[i].Extras = map[string]string{}
 				for _, e := range d.Extras {

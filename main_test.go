@@ -797,3 +797,24 @@ func TestCameraURL(t *testing.T) {
 		t.Errorf("cameraURL(\"\") = %q, want empty", got)
 	}
 }
+
+func TestRoomCardView_CopiesVacuumFields(t *testing.T) {
+	bat := 77
+	v := roomCardView(hass.RoomCard{Room: "Hall", Devices: []hass.Device{{EntityID: "vacuum.robot", Domain: "vacuum", Effect: "vacuum",
+		Activity: "returning", Battery: &bat, FanSpeed: "gentle", FanSpeeds: []string{"gentle"}, SupportsLocate: true, MapCamera: "camera.robot_map"}}})
+	d := v.Devices[0]
+	if d.Activity != "returning" || d.Battery == nil || *d.Battery != 77 || d.FanSpeed != "gentle" || len(d.FanSpeeds) != 1 || !d.SupportsLocate || d.MapCamera != "camera.robot_map" {
+		t.Errorf("device view = %+v", d)
+	}
+}
+
+func TestWidgetHandler_CarriesCameraURL(t *testing.T) {
+	ha := fakeHAServer(t)
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	rec := httptest.NewRecorder()
+	newMux(cfg, newApp(cfg)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/widget", nil))
+	if !strings.Contains(rec.Body.String(), `data-camera-url="/ha-widget/camera"`) {
+		t.Errorf("widget lacks data-camera-url")
+	}
+}

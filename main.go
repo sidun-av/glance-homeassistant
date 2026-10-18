@@ -369,6 +369,12 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 			Oscillating:    d.Oscillating,
 			PresetModes:    d.PresetModes,
 			PresetMode:     d.PresetMode,
+			Activity:       d.Activity,
+			Battery:        d.Battery,
+			FanSpeed:       d.FanSpeed,
+			FanSpeeds:      d.FanSpeeds,
+			SupportsLocate: d.SupportsLocate,
+			MapCamera:      d.MapCamera,
 			Extras:         extraViews(d.Extras),
 		})
 	}
@@ -1145,6 +1151,7 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref str
 		MediaURL:        mediaURL(a.cfg.PublicURL),
 		EntityURL:       entityURL(a.cfg.PublicURL),
 		TemperatureURL:  temperatureURL(a.cfg.PublicURL),
+		CameraURL:       cameraURL(a.cfg.PublicURL),
 		Rooms:           views,
 		CardMinHeight:   a.cfg.Temperature.ChartHeight,
 		LiveURL:         liveURL(a.cfg.PublicURL),
