@@ -3,17 +3,22 @@
 #
 # Run by launchd (see install.sh) whenever the plan file changes and every
 # five minutes; safe to run by hand too. It PUTs the plan to
-# <url>/house/plan with the shared secret as a bearer token, and remembers
-# the hash of what it last pushed so an unchanged plan costs nothing.
+# <url>/house/plan with the shared secret as a bearer token. Before that
+# it asks the server (a plain GET with If-None-Match, which needs no
+# secret) whether it already holds these exact bytes, so an unchanged plan
+# costs one tiny request, and a plan the server has lost (a recreated data
+# volume, a restored backup) is pushed again on the next run.
 #
 # Settings (environment, all optional):
 #   PLAN_FILE  the plan to push
 #              (default: ~/Library/Application Support/HouseControl/plan.json)
 #   CONF_DIR   holds two files: "url" (the server origin, e.g.
 #              http://<lan-host>:<port>) and "secret" (the shared secret,
-#              mode 600) (default: ~/.config/glance-house)
-#   STATE_DIR  where the last pushed hash is kept
-#              (default: ~/Library/Caches/glance-house)
+#              mode 600; leading and trailing whitespace is ignored, as
+#              the server does, and inner whitespace is refused)
+#              (default: ~/.config/glance-house)
+#   STATE_DIR  where the hash of the last successful push is recorded, for
+#              reference only (default: ~/Library/Caches/glance-house)
 #   LOG_FILE   if set, trimmed to its last 2000 lines once it passes 1 MiB
 #
 # Exit status: 0 when there was nothing to do, the push worked, or the push
@@ -63,9 +68,15 @@ private_file "$CONF_DIR/secret" || die "refusing: $CONF_DIR/secret is readable b
 
 url=$(tr -d ' \t\r\n' <"$CONF_DIR/url")
 url=${url%/}
-secret=$(tr -d ' \t\r\n' <"$CONF_DIR/secret")
+# The secret's surrounding whitespace (a trailing newline, a CR) is dropped,
+# exactly as the server trims HOUSE_PLAN_SECRET. Whitespace inside it would
+# be kept by the server but cannot be sent safely here, so it is refused.
+secret=$(tr '\t\r\n' '   ' <"$CONF_DIR/secret" | sed -e 's/^ *//' -e 's/ *$//')
 [ -n "$url" ] || die "$CONF_DIR/url is empty"
 [ -n "$secret" ] || die "$CONF_DIR/secret is empty"
+case $secret in
+*' '*) die "$CONF_DIR/secret contains whitespace; use a secret without spaces (e.g. openssl rand -hex 32)" ;;
+esac
 
 if [ ! -f "$PLAN_FILE" ]; then
 	log "no plan file at $PLAN_FILE"
@@ -78,12 +89,18 @@ trap 'rm -rf "$work"' EXIT
 trim_log
 
 # Hash and upload one snapshot, so a plan rewritten mid-run cannot be
-# recorded under the wrong hash. The URL is part of the key: pointing the
-# pusher at another server pushes again.
+# recorded under the wrong hash.
 cp "$PLAN_FILE" "$work/plan.json"
 hash=$(sha256 "$work/plan.json")
 key="$hash $url"
-if [ -f "$STATE_DIR/last" ] && [ "$(cat "$STATE_DIR/last")" = "$key" ]; then
+
+# The server's ETag is the first 16 hex digits of sha256 of the bytes it
+# was given, in quotes: a 304 means it already serves exactly this plan.
+# Anything else (200 with another plan, 404 with none, an error, no answer)
+# means push.
+etag="\"$(printf '%s' "$hash" | cut -c1-16)\""
+if probe=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' \
+	-H "If-None-Match: $etag" "$url/house/plan" 2>/dev/null) && [ "$probe" = "304" ]; then
 	log "unchanged"
 	exit 0
 fi

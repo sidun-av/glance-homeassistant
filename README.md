@@ -213,8 +213,10 @@ tools/house-plan-push/install.sh            # --dry-run first shows what it woul
 ```
 
 Give the server the same secret as `HOUSE_PLAN_SECRET`. `install.sh` installs a user LaunchAgent.
-It runs `push.sh` when the plan file changes, every 5 minutes, and at login. An unchanged plan
-(same hash) is not sent again, and a failed push is retried on the next run. It logs to
+It runs `push.sh` when the plan file changes, every 5 minutes, and at login. Each run first asks
+the server (a plain `GET /house/plan` with `If-None-Match`) whether it already serves this exact
+plan, and sends it only when it does not, so a server that lost its plan (a recreated data volume,
+a restored backup) gets it back within 5 minutes. A failed push is retried on the next run. It logs to
 `~/Library/Logs/glance-house-push.log`, where a successful run says `pushed <hash>`. To push once
 by hand, run `sh tools/house-plan-push/push.sh`.
 

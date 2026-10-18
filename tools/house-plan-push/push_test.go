@@ -2,6 +2,8 @@ package houseplanpush
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,31 +23,71 @@ type request struct {
 	body                            []byte
 }
 
+// recorder stands in for the widget server: it keeps the last plan PUT to
+// it and answers GET /house/plan the way the server does (ETag of the raw
+// bytes, 304 on a matching If-None-Match, 404 with no plan).
 type recorder struct {
 	mu     sync.Mutex
-	reqs   []request
-	status int
+	reqs   []request // the PUTs
+	probes int       // the GETs
+	status int       // non-zero: every PUT fails with it
+	stored []byte
+}
+
+func etagOf(b []byte) string {
+	sum := sha256.Sum256(b)
+	return `"` + hex.EncodeToString(sum[:])[:16] + `"`
 }
 
 func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	rec.mu.Lock()
-	rec.reqs = append(rec.reqs, request{r.Method, r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), body})
-	status := rec.status
-	rec.mu.Unlock()
+	defer rec.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	if status != 0 {
-		w.WriteHeader(status)
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		rec.probes++
+		if rec.stored == nil {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":"no_plan"}`+"\n")
+			return
+		}
+		etag := etagOf(rec.stored)
+		w.Header().Set("ETag", etag)
+		if r.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Write(rec.stored)
+		return
+	}
+	rec.reqs = append(rec.reqs, request{r.Method, r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), body})
+	if rec.status != 0 {
+		w.WriteHeader(rec.status)
 		io.WriteString(w, `{"error":"save_failed"}`+"\n")
 		return
 	}
-	io.WriteString(w, `{"ok":true,"etag":"\"0123456789abcdef\""}`+"\n")
+	rec.stored = body
+	io.WriteString(w, `{"ok":true,"etag":"`+strings.ReplaceAll(etagOf(body), `"`, `\"`)+`"}`+"\n")
 }
 
+// count is the number of PUTs.
 func (rec *recorder) count() int {
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	return len(rec.reqs)
+}
+
+func (rec *recorder) setStatus(status int) {
+	rec.mu.Lock()
+	rec.status = status
+	rec.mu.Unlock()
+}
+
+// forget drops the stored plan, as a recreated data volume would.
+func (rec *recorder) forget() {
+	rec.mu.Lock()
+	rec.stored = nil
+	rec.mu.Unlock()
 }
 
 type env struct {
@@ -185,6 +227,50 @@ func TestPush_NewServerURLPushesAgain(t *testing.T) {
 	}
 }
 
+func TestPush_ServerThatLostThePlanGetsItAgain(t *testing.T) {
+	rec := &recorder{}
+	srv := httptest.NewServer(rec)
+	defer srv.Close()
+	e := newEnv(t, srv.URL)
+	e.write(e.plan, `{"rooms":[{"id":"r1"}]}`, 0o644)
+	if out, code := e.push(); code != 0 || rec.count() != 1 {
+		t.Fatalf("first push: code %d, requests %d, output:\n%s", code, rec.count(), out)
+	}
+	rec.forget()
+	if out, code := e.push(); code != 0 || !strings.Contains(out, "pushed ") || rec.count() != 2 {
+		t.Fatalf("after the server lost it: code %d, requests %d, output:\n%s", code, rec.count(), out)
+	}
+
+	// The server holding another plan (an older backup restored) also
+	// means push, though the local plan has not changed.
+	rec.mu.Lock()
+	rec.stored = []byte(`{"rooms":[{"id":"old"}]}`)
+	rec.mu.Unlock()
+	if out, code := e.push(); code != 0 || !strings.Contains(out, "pushed ") || rec.count() != 3 {
+		t.Fatalf("after a restore: code %d, requests %d, output:\n%s", code, rec.count(), out)
+	}
+	if out, _ := e.push(); !strings.Contains(out, "unchanged") || rec.count() != 3 {
+		t.Fatalf("in sync again: requests %d, output:\n%s", rec.count(), out)
+	}
+}
+
+func TestPush_SecretWhitespace(t *testing.T) {
+	rec := &recorder{}
+	srv := httptest.NewServer(rec)
+	defer srv.Close()
+	e := newEnv(t, srv.URL)
+	e.write(e.plan, `{"rooms":[1]}`, 0o644)
+	e.write(filepath.Join(e.conf, "secret"), "  \t"+secret+"\r\n\n", 0o600)
+	if out, code := e.push(); code != 0 || rec.count() != 1 || rec.reqs[0].auth != "Bearer "+secret {
+		t.Fatalf("padded secret: code %d, requests %d, output:\n%s", code, rec.count(), out)
+	}
+	e.write(e.plan, `{"rooms":[2]}`, 0o644)
+	e.write(filepath.Join(e.conf, "secret"), "two words\n", 0o600)
+	if out, code := e.push(); code != 1 || rec.count() != 1 || !strings.Contains(out, "contains whitespace") {
+		t.Fatalf("inner space: code %d, requests %d, output:\n%s", code, rec.count(), out)
+	}
+}
+
 func TestPush_ServerErrorIsRetriedLater(t *testing.T) {
 	rec := &recorder{status: http.StatusInternalServerError}
 	srv := httptest.NewServer(rec)
@@ -199,7 +285,7 @@ func TestPush_ServerErrorIsRetriedLater(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.state, "last")); !os.IsNotExist(err) {
 		t.Fatalf("last written after a failed push (err %v)", err)
 	}
-	rec.status = 0
+	rec.setStatus(0)
 	if out, _ := e.push(); !strings.Contains(out, "pushed ") || rec.count() != 2 {
 		t.Fatalf("retry: requests %d, output:\n%s", rec.count(), out)
 	}
