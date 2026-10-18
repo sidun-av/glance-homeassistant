@@ -62,17 +62,44 @@ func (s *Store) Save(raw []byte) (*Plan, error) {
 		return nil, fmt.Errorf("create plan dir: %w", err)
 	}
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := writeSynced(tmp, raw); err != nil {
 		os.Remove(tmp)
 		return nil, fmt.Errorf("write plan: %w", err)
 	}
-	// WriteFile's mode is filtered by the umask; the file is meant to be
-	// readable by whoever inspects the volume.
-	os.Chmod(tmp, 0o644)
 	if err := os.Rename(tmp, s.path); err != nil {
 		os.Remove(tmp)
 		return nil, fmt.Errorf("replace plan: %w", err)
 	}
+	// The rename itself is made durable too (best effort: not every
+	// filesystem lets a directory be synced).
+	if dir, err := os.Open(filepath.Dir(s.path)); err == nil {
+		dir.Sync()
+		dir.Close()
+	}
 	s.plan = p
 	return p, nil
+}
+
+// writeSynced writes data to path (mode 0644 whatever the umask, so that
+// whoever inspects the volume can read it) and flushes it to disk before
+// returning, so that a crash right after the rename cannot leave a
+// truncated plan behind.
+func writeSynced(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
