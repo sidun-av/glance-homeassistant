@@ -531,3 +531,23 @@ func TestRenderWidget_ProjectedColumnsAreFadedNotHidden(t *testing.T) {
 		}
 	}
 }
+
+func TestEntityControlScript_VacuumWiring(t *testing.T) {
+	// smoke check: behaviour itself is verified in the browser harness
+	for _, want := range []string{
+		`d.domain==='vacuum'`,
+		`'start'`, `'pause'`, `'return_to_base'`, `'locate'`, `'set_fan_speed'`,
+		`root.dataset.cameraUrl`,
+		`VAC_MAP_REFRESH_MS=10000`,
+		`window.URL.revokeObjectURL`,
+	} {
+		if !strings.Contains(entityControlScript, want) {
+			t.Errorf("entityControlScript missing %q", want)
+		}
+	}
+	for _, want := range []string{`.ha-pop-vac{`, `.ha-pop-map{`, `.ha-pop-act{`} {
+		if !strings.Contains(entityControlCSS, want) {
+			t.Errorf("entityControlCSS missing %q", want)
+		}
+	}
+}

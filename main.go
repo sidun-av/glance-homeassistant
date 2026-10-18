@@ -563,6 +563,9 @@ func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
 // no-store: the map changes as the robot drives, and the popover refetches
 // it while cleaning.
 func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
+	// the popover fetch()es it (as a blob), so a public_url on another
+	// origin needs CORS, like /temperature
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	id := r.URL.Query().Get("entity_id")
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()

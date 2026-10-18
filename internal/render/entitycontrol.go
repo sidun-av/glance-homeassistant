@@ -56,6 +56,25 @@ const entityControlCSS = `
 	.ha-pop-sep{height:1px;background:var(--color-widget-content-border);margin:0 -15px;flex:none}
 	.ha-pop-sel{width:100%;height:28px;border-radius:var(--border-radius,5px);border:1px solid var(--color-widget-content-border);background:transparent;color:var(--color-text-base);font:inherit;font-size:12px;padding:0 6px}
 	.ha-pop-err{color:var(--color-negative);font-size:11px}
+	/* vacuum popover: wider, for the map; Start/Pause, Dock, Locate as a
+	   row of buttons; the map in a fixed-aspect box so the panel never
+	   changes height (and gets pushed off-screen) when the image arrives */
+	.ha-pop-vac{width:300px}
+	.ha-pop-sub[data-activity="error"]{color:var(--color-negative)}
+	.ha-pop-acts{display:flex;gap:6px}
+	.ha-pop-act{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 6px;
+	  border-radius:var(--border-radius,5px);border:1px solid var(--color-popover-border,var(--color-widget-content-border));background:transparent;
+	  color:var(--color-text-highlight);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+	.ha-pop-act svg{width:15px;height:15px;flex:none;fill:currentColor}
+	.ha-pop-act:hover:not(:disabled){border-color:var(--color-primary);color:var(--color-primary)}
+	.ha-pop-act[data-on="true"]{border-color:var(--color-primary);color:var(--color-primary);background:color-mix(in srgb,var(--color-primary) 12%,transparent)}
+	.ha-pop-act:disabled{opacity:.4;cursor:default}
+	.ha-pop-map{position:relative;aspect-ratio:1/1;border-radius:var(--border-radius,5px);overflow:hidden;flex:none;
+	  background:color-mix(in srgb,var(--color-text-base) 6%,transparent)}
+	.ha-pop-map img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .25s}
+	.ha-pop-map[data-state="ok"] img{opacity:1}
+	.ha-pop-map-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--color-text-subdue);font-size:11px}
+	.ha-pop-map[data-state="ok"] .ha-pop-map-msg{display:none}
 `
 
 // entityControlScript is a second onerror-driven IIFE, appended after
@@ -66,7 +85,8 @@ const entityControlCSS = `
 //
 // Click vs. long-press is decided with pointer events (unifies mouse and
 // touch — this widget is as likely to run on a wall-mounted touchscreen as
-// a desktop browser): a short tap toggles the entity; holding for
+// a desktop browser): a short tap toggles the entity (a vacuum: start or
+// pause, see tapTile); holding for
 // LONG_PRESS_MS opens the popover for entities that have one; movement past
 // MOVE_TOLERANCE cancels both, so a scroll starting on a tile is never
 // mistaken for a press. Only the primary mouse button counts, and the
@@ -130,6 +150,7 @@ const entityControlScript = `;(function(img){
 	});
 
 	var entityUrl=root.dataset.entityUrl;if(!entityUrl)return;
+	var cameraUrl=root.dataset.cameraUrl;
 
 	var TOGGLE_DOMAINS={light:true,switch:true,fan:true,cover:true,lock:true,humidifier:true,water_heater:true,vacuum:true,climate:true};
 	var MODE_LABELS={off:'Off',heat:'Heat',cool:'Cool',heat_cool:'Heat/Cool',auto:'Auto',dry:'Dry',fan_only:'Fan'};
@@ -144,6 +165,7 @@ const entityControlScript = `;(function(img){
 	function canPopover(t){
 		var d=t.dataset;
 		if(t.classList.contains('ha-light'))return d.hasBrightness==='true'||d.hasColorTemp==='true'||d.hasColor==='true';
+		if(d.domain==='vacuum')return true;
 		return d.hasTargetTemp==='true'||d.hasSpeed==='true'||d.hasOscillate==='true'||!!d.hvacModes||!!d.presetModes||!!d.extras;
 	}
 	root.querySelectorAll('.ha-light,.ha-device').forEach(function(t){if(eligibleTile(t)===t)t.dataset.fpInteractive='true';});
@@ -173,7 +195,7 @@ const entityControlScript = `;(function(img){
 	function onOutside(e){if(pop&&!pop.contains(e.target)&&!popFor.contains(e.target))closePopover();}
 	function closePopover(){
 		if(!pop)return;
-		pop.remove();pop=null;popFor=null;
+		pop.remove();pop=null;popFor=null;stopVac();
 		document.removeEventListener('keydown',onKey);
 		document.removeEventListener('pointerdown',onOutside,true);
 		window.removeEventListener('scroll',closePopover,true);
@@ -287,6 +309,90 @@ const entityControlScript = `;(function(img){
 		panel.style.top=Math.max(8,y)+'px';
 	}
 
+	// Robot vacuum. A tap sends start or pause (homeassistant.toggle does
+	// nothing on most robots), flipping data-activity at once; the poller
+	// reconciles it after the hold. The popover has the status line,
+	// Start/Pause, Dock, Locate, suction chips and the map from the same
+	// device's camera, fetched through the widget server (cameraUrl) as a
+	// blob so a refresh never flashes an empty box; it refreshes every
+	// VAC_MAP_REFRESH_MS while the robot is out (cleaning/returning).
+	// window.URL, not URL: inside an onerror attribute handler, bare names
+	// resolve against the document first, and document.URL is a string.
+	var VAC_LABELS={cleaning:'Cleaning',returning:'Returning to dock',docked:'Docked',paused:'Paused',idle:'Idle',error:'Error'};
+	var FAN_LABELS={closed:'Off',off:'Off'};
+	var VAC_MAP_REFRESH_MS=10000;
+	var ICON={
+		play:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>',
+		pause:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>',
+		dock:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z"/></svg>',
+		locate:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M3.05,13H1V11H3.05C3.5,6.83 6.83,3.5 11,3.05V1H13V3.05C17.17,3.5 20.5,6.83 20.95,11H23V13H20.95C20.5,17.17 17.17,20.5 13,20.95V23H11V20.95C6.83,20.5 3.5,17.17 3.05,13M12,5A7,7 0 0,0 5,12A7,7 0 0,0 12,19A7,7 0 0,0 19,12A7,7 0 0,0 12,5Z"/></svg>'
+	};
+	function vacRunning(d){return d.activity==='cleaning'||d.activity==='returning';}
+	function vacStatus(d){var s=VAC_LABELS[d.activity]||d.activity||'';if(d.battery)s+=' · '+d.battery+'%';return s;}
+	function fanLabel(s){return FAN_LABELS[s]||(s.charAt(0).toUpperCase()+s.slice(1).replace(/_/g,' '));}
+	function setActivity(tile,a){tile.dataset.activity=a;tile.dataset.on=String(a==='cleaning'||a==='returning');}
+	function vacuumCmd(tile,action,next,data){
+		var was=tile.dataset.activity;
+		if(next){setActivity(tile,next);hold(tile);}
+		post(action,tile.dataset.entityId,data).catch(function(err){if(next){setActivity(tile,was);delete tile.dataset.holdUntil;}showErr(err.message);});
+	}
+	function vacuumRun(tile){if(vacRunning(tile.dataset))vacuumCmd(tile,'pause','paused');else vacuumCmd(tile,'start','cleaning');}
+	// tap: an error needs a look first, so it opens the popover instead
+	function tapTile(tile){
+		if(tile.dataset.domain!=='vacuum'){toggleTile(tile);return;}
+		if(tile.dataset.activity==='error'){openPopover(tile);return;}
+		vacuumRun(tile);
+	}
+	function buildVacPanel(tile){
+		var d=tile.dataset,panel=document.createElement('div');
+		panel.className='ha-pop ha-pop-vac';panel.setAttribute('role','dialog');
+		var html='<div class="ha-pop-head"><div style="min-width:0"><div class="ha-pop-title">'+esc(tile.getAttribute('title')||d.entityId)+'</div>'+
+			'<div class="ha-pop-sub" data-out="vac-status"></div></div></div>'+
+			'<div class="ha-pop-acts"><button type="button" class="ha-pop-act" data-vac="run"></button>'+
+			'<button type="button" class="ha-pop-act" data-vac="dock">'+ICON.dock+'Dock</button>'+
+			(d.locate==='true'?'<button type="button" class="ha-pop-act" data-vac="locate">'+ICON.locate+'Locate</button>':'')+'</div>';
+		var speeds=parse(d.fanSpeeds||'[]',[]);
+		if(speeds.length)html+='<div class="ha-pop-row"><span class="ha-pop-label">Suction</span><div class="ha-pop-chips">'+speeds.map(function(s){
+			return '<button type="button" class="ha-pop-chip" data-fan-speed="'+esc(s)+'">'+esc(fanLabel(s))+'</button>';
+		}).join('')+'</div></div>';
+		if(d.mapCamera&&cameraUrl)html+='<div class="ha-pop-map" data-state="loading"><img alt="Map of the last clean"><span class="ha-pop-map-msg">Loading map…</span></div>';
+		html+=extrasHtml(tile);
+		panel.innerHTML=html;
+		refreshVac(panel,tile);
+		return panel;
+	}
+	// refreshVac re-reads the tile's data into an open vacuum panel (after a
+	// command, or when the poller changes data-activity/battery/fan-speed)
+	function refreshVac(panel,tile){
+		var d=tile.dataset,running=vacRunning(d);
+		var st=panel.querySelector('[data-out="vac-status"]');if(st){st.textContent=vacStatus(d);st.dataset.activity=d.activity||'';}
+		var run=panel.querySelector('[data-vac="run"]');if(run){run.innerHTML=running?ICON.pause+'Pause':ICON.play+'Start';run.dataset.on=String(running);}
+		var dock=panel.querySelector('[data-vac="dock"]');if(dock)dock.disabled=d.activity==='docked'||d.activity==='returning';
+		panel.querySelectorAll('[data-fan-speed]').forEach(function(c){c.dataset.on=String(c.dataset.fanSpeed===d.fanSpeed);});
+	}
+	var vacTimer=null,vacObs=null,mapObjUrl=null;
+	function loadMap(panel,tile){
+		var box=panel.querySelector('.ha-pop-map');if(!box)return;
+		var u=cameraUrl+(cameraUrl.indexOf('?')<0?'?':'&')+'entity_id='+encodeURIComponent(tile.dataset.mapCamera);
+		fetch(u,{cache:'no-store',credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob();}).then(function(b){
+			if(pop!==panel)return;
+			if(mapObjUrl)window.URL.revokeObjectURL(mapObjUrl);
+			mapObjUrl=window.URL.createObjectURL(b);
+			var img=box.querySelector('img');img.onload=function(){box.dataset.state='ok';};img.src=mapObjUrl;
+		}).catch(function(){if(pop===panel&&box.dataset.state!=='ok'){box.dataset.state='error';box.querySelector('.ha-pop-map-msg').textContent='Map unavailable';}});
+	}
+	function startVac(panel,tile){
+		loadMap(panel,tile);
+		vacTimer=setInterval(function(){if(vacRunning(tile.dataset))loadMap(panel,tile);},VAC_MAP_REFRESH_MS);
+		vacObs=new MutationObserver(function(){refreshVac(panel,tile);});
+		vacObs.observe(tile,{attributes:true,attributeFilter:['data-activity','data-battery','data-fan-speed']});
+	}
+	function stopVac(){
+		if(vacTimer){clearInterval(vacTimer);vacTimer=null;}
+		if(vacObs){vacObs.disconnect();vacObs=null;}
+		if(mapObjUrl){window.URL.revokeObjectURL(mapObjUrl);mapObjUrl=null;}
+	}
+
 	var timers={};
 	var FIELD_ACTIONS={brightness:['set_brightness','brightness_pct'],color_temp:['set_color_temp','color_temp_kelvin'],temperature:['set_temperature','temperature'],percentage:['set_percentage','percentage']};
 	function send(tile,field,value,immediate){
@@ -310,6 +416,17 @@ const entityControlScript = `;(function(img){
 		panel.addEventListener('click',function(e){
 			var btn=e.target.closest('button');if(!btn)return;
 			var act=btn.dataset.act;
+			if(btn.dataset.vac){
+				if(btn.dataset.vac==='run')vacuumRun(tile);
+				else if(btn.dataset.vac==='dock')vacuumCmd(tile,'return_to_base','returning');
+				else if(btn.dataset.vac==='locate')vacuumCmd(tile,'locate',null);
+				return;
+			}
+			if(btn.dataset.fanSpeed!=null){
+				var fs=btn.dataset.fanSpeed;
+				tile.dataset.fanSpeed=fs;hold(tile);
+				post('set_fan_speed',tile.dataset.entityId,{fan_speed:fs}).catch(function(err){showErr(err.message);});return;
+			}
 			if(btn.dataset.preset){
 				var pm=btn.dataset.preset;
 				btn.parentNode.querySelectorAll('.ha-pop-chip').forEach(function(c){c.dataset.on=String(c===btn);});
@@ -381,10 +498,12 @@ const entityControlScript = `;(function(img){
 	function openPopover(tile){
 		if(popFor===tile){closePopover();return;}
 		closePopover();
-		var panel=buildPanel(tile);
+		var vac=tile.dataset.domain==='vacuum';
+		var panel=vac?buildVacPanel(tile):buildPanel(tile);
 		popFor=tile;pop=panel;
 		positionPanel(panel,tile);
 		wirePanel(panel,tile);
+		if(vac)startVac(panel,tile);
 		document.addEventListener('keydown',onKey);
 		document.addEventListener('pointerdown',onOutside,true);
 		window.addEventListener('scroll',closePopover,true);
@@ -403,7 +522,7 @@ const entityControlScript = `;(function(img){
 			if(!press)return;
 			var t=press.tile;cancelPress();
 			if(canPopover(t)){openPopover(t);if(navigator.vibrate)navigator.vibrate(10);}
-			else toggleTile(t);
+			else tapTile(t);
 		},LONG_PRESS_MS);
 	});
 	root.addEventListener('pointermove',function(e){
@@ -412,7 +531,7 @@ const entityControlScript = `;(function(img){
 	root.addEventListener('pointerup',function(){
 		if(!press)return;
 		var tile=press.tile;cancelPress();
-		toggleTile(tile);
+		tapTile(tile);
 	});
 	root.addEventListener('pointercancel',cancelPress);
 	root.addEventListener('contextmenu',function(e){if(eligibleTile(e.target))e.preventDefault();});

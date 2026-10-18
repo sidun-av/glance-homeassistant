@@ -261,13 +261,13 @@ const floorplanCSS = `
 	   (data-activity, HA's state). ::before/::after drop the cone and
 	   become small marks around the icon: cleaning, a dot orbiting a dashed
 	   track (the robot driving its route); returning, a ring pulsing out
-	   (homing on the dock); docked, a battery badge; paused, a pause badge;
+	   toward a small dock badge (homing); docked, a battery badge; paused, a pause badge;
 	   error, a red icon and a "!" badge. [data-activity] keeps these rules
 	   above the centre-slot glow/ripple ones. */
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity]::before,.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity]::after{
 	  clip-path:none;mask:none;-webkit-mask:none;mix-blend-mode:normal;background:none;border-radius:50%;
 	  width:0;height:0;left:50%;top:50%;transform:none;opacity:0;transition:opacity .3s;animation:none;z-index:2}
-	.ha-fp-icons .ha-device[data-effect="vacuum"][data-activity] svg path{fill:var(--color-text-subdue);opacity:.55}
+	.ha-fp-icons .ha-device[data-effect="vacuum"][data-activity] svg path{fill:var(--color-text-base);opacity:.75}
 	.ha-fp-icons .ha-device[data-effect="vacuum"]:is([data-activity="cleaning"],[data-activity="returning"]) svg path{fill:var(--color-primary);opacity:1}
 	.ha-fp-icons .ha-device[data-effect="vacuum"][data-activity="paused"] svg path{fill:var(--color-text-highlight);opacity:.85}
 	.ha-fp-icons .ha-device[data-effect="vacuum"][data-activity="error"] svg path{fill:var(--color-negative);opacity:1}
@@ -278,6 +278,9 @@ const floorplanCSS = `
 	@keyframes ha-vac-orbit{from{transform:rotate(0deg) translateX(17px)}to{transform:rotate(360deg) translateX(17px)}}
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="returning"]::after{width:28px;height:28px;margin:-16px 0 0 -16px;
 	  border:2px solid var(--color-primary);animation:ha-vac-home 1.8s ease-out infinite}
+	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="returning"]::before{width:11px;height:11px;left:auto;top:auto;right:-4px;bottom:-3px;
+	  border-radius:0;opacity:1;background:var(--color-primary);-webkit-mask:var(--ha-vac-dock) center/contain no-repeat;mask:var(--ha-vac-dock) center/contain no-repeat}
+	.ha-fp-icons>.ha-device[data-effect="vacuum"]{--ha-vac-dock:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z'/></svg>")}
 	@keyframes ha-vac-home{from{opacity:.9;transform:scale(1.25)}to{opacity:0;transform:scale(.55)}}
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="docked"][data-battery]::after{content:attr(data-battery) "%";
 	  width:auto;height:auto;left:auto;top:auto;right:-9px;bottom:-5px;padding:1px 3px;border-radius:7px;opacity:1;
@@ -285,11 +288,11 @@ const floorplanCSS = `
 	  color:var(--color-positive,#5dbb6d);background:var(--color-widget-background);border:1px solid var(--color-widget-content-border)}
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="docked"][data-battery-low="true"]::after{color:var(--color-negative)}
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="paused"]::after,.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="error"]::after{
-	  width:13px;height:13px;left:auto;top:auto;right:-3px;bottom:-3px;opacity:1;border:1px solid var(--color-widget-content-border)}
+	  width:14px;height:14px;left:auto;top:auto;right:-4px;bottom:-3px;opacity:1;border:1px solid var(--color-widget-background)}
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="paused"]::after{
-	  background:linear-gradient(90deg,transparent 3.5px,var(--color-text-highlight) 3.5px 5.5px,transparent 5.5px 7.5px,var(--color-text-highlight) 7.5px 9.5px,transparent 9.5px) 50% 50%/100% 7px no-repeat,var(--color-widget-background)}
+	  background:linear-gradient(90deg,transparent 4px,var(--color-widget-background) 4px 6px,transparent 6px 8px,var(--color-widget-background) 8px 10px,transparent 10px) 50% 50%/100% 7px no-repeat,var(--color-text-highlight)}
 	.ha-fp-icons>.ha-device[data-effect="vacuum"][data-activity="error"]::after{content:"!";background:var(--color-negative);border-color:var(--color-negative);
-	  color:#fff;font-size:10px;font-weight:700;line-height:13px;text-align:center}
+	  color:var(--color-widget-background);font-size:10px;font-weight:700;line-height:14px;text-align:center}
 	.ha-fp-icons .ha-badge{gap:0;font-size:0}
 	.ha-fp-icons .ha-badge .ha-contact-label{display:none}
 `

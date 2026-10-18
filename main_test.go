@@ -769,8 +769,8 @@ func TestCameraHandler_OnlyAVacuumsMapCamera(t *testing.T) {
 	if rec.Code != 200 || rec.Body.String() != "PNGDATA" {
 		t.Fatalf("map camera: status %d body %q", rec.Code, rec.Body.String())
 	}
-	if ct, cc := rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"); ct != "image/png" || cc != "no-store" {
-		t.Errorf("headers: Content-Type %q, Cache-Control %q", ct, cc)
+	if ct, cc, ao := rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"), rec.Header().Get("Access-Control-Allow-Origin"); ct != "image/png" || cc != "no-store" || ao != "*" {
+		t.Errorf("headers: Content-Type %q, Cache-Control %q, Access-Control-Allow-Origin %q", ct, cc, ao)
 	}
 	if len(cameraHits) != 1 || cameraHits[0] != "/api/camera_proxy/camera.robot_map" {
 		t.Errorf("upstream camera calls %v", cameraHits)
