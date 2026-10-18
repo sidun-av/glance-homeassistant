@@ -336,7 +336,7 @@ const entityControlScript = `;(function(img){
 	// the box ends on the finished route rather than the last mid-run
 	// frame. A refresh that fails after a good frame marks the map stale
 	// (dimmed, "Map not updated") instead of silently keeping it.
-	var VAC_LABELS={cleaning:'Cleaning',returning:'Returning to dock',docked:'Docked',paused:'Paused',idle:'Idle',error:'Error'};
+	var VAC_LABELS={cleaning:'Cleaning',returning:'Returning to dock',docked:'Docked',paused:'Paused',idle:'Idle',error:'Error',unavailable:'Unavailable',unknown:'Unknown'};
 	// "closed" is suction off (mop only) on the Tuya-based robots that use it
 	var FAN_LABELS={closed:'Off',off:'Off'};
 	var VAC_MAP_REFRESH_MS=10000,VAC_MAP_SETTLE_MS=3000;

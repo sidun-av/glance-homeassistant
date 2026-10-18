@@ -59,7 +59,8 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
   `climate`/`water_heater` blows an orange one; a playing media player sends notes drifting up; a
   robot vacuum shows what it is doing — a dot orbiting it while cleaning, a ring pulsing in with a
   dock badge while returning, its battery while docked (from `battery_level`, or a battery sensor of
-  the same HA device), a pause badge while paused, red with a "!" on error. A source placed in a room's centre
+  the same HA device), a pause badge while paused, red with a "!" on error, faded with a "?" when HA
+  can't reach it. A source placed in a room's centre
   cell glows or ripples all around instead of casting a beam. Other devices just light up while
   active (cleaning, open, unlocked, on).
   `switch` is off by default because most switches are a light's second channel or a config

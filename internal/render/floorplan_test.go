@@ -410,6 +410,7 @@ func TestFloorplanCSS_VacuumStates(t *testing.T) {
 		`[data-effect="vacuum"][data-activity="docked"][data-battery]::after`,
 		`[data-effect="vacuum"][data-activity="paused"]::after`,
 		`[data-effect="vacuum"][data-activity="error"]`,
+		`[data-effect="vacuum"]:is([data-activity="unavailable"],[data-activity="unknown"])::after{content:"?"`,
 	} {
 		if !strings.Contains(floorplanCSS, want) {
 			t.Errorf("floorplan CSS missing %q", want)
