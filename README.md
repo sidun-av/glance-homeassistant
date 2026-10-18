@@ -56,7 +56,10 @@ casts a beam toward the room's centre, sized to stop there whatever the room's s
   blue stream with moving waves and the fan icon spins — a fan's stream is as long as its speed,
   gusts in a natural-wind/breeze preset, and while oscillating sweeps wall to wall (its edge comes
   to lie along the walls the fan stands against, never past them); a heating
-  `climate`/`water_heater` blows an orange one; a playing media player sends notes drifting up. A source placed in a room's centre
+  `climate`/`water_heater` blows an orange one; a playing media player sends notes drifting up; a
+  robot vacuum shows what it is doing — a dot orbiting it while cleaning, a ring pulsing in with a
+  dock badge while returning, its battery while docked (from `battery_level`, or a battery sensor of
+  the same HA device), a pause badge while paused, red with a "!" on error. A source placed in a room's centre
   cell glows or ripples all around instead of casting a beam. Other devices just light up while
   active (cleaning, open, unlocked, on).
   `switch` is off by default because most switches are a light's second channel or a config
@@ -72,11 +75,16 @@ With a `public_url` set, the map is interactive (mouse or touch):
 
 - **Tap** a light or device tile to toggle it (`homeassistant.toggle`; the tile flips at once
   and reconciles with HA on the next poll).
+  A vacuum instead starts (docked/idle/paused) or pauses (cleaning/returning); one in error opens
+  its controls.
 - **Long-press** (½ s) to open its controls:
   - light — brightness, colour temperature and colour swatches, whichever `supported_color_modes`
     allows;
   - fan — speed, preset modes (e.g. straight / natural wind), oscillation;
   - climate — target temperature (−/+ and a slider) and HVAC mode; water heater — target;
+  - vacuum — status and battery, Start/Pause, Dock, Locate (when supported), suction from its
+    `fan_speed_list`, and the map with the route from the camera of the same HA device (refreshed
+    every 10 s while cleaning or returning);
   - plus the device's other controls: every `select` (chips), `number` (slider) and `switch` of the
     same Home Assistant device — a fan's swing angle, level, off timer, beep, child lock… Stock
     Xiaomi names get readable labels; entities renamed in HA keep their names.
@@ -86,7 +94,9 @@ With a `public_url` set, the map is interactive (mouse or touch):
 All of it goes through this service, never straight to HA: `POST <public_url>/entity`
 `{entity_id, action, …}` checks the domain/action against an allowlist and validates values
 (`select`/`number`/`switch` only for entities the map actually shows), and
-`GET <public_url>/temperature?room=<Area>` serves the chart's 15-minute series. Media players are
+`GET <public_url>/temperature?room=<Area>` serves the chart's 15-minute series. A vacuum's map comes
+through `GET <public_url>/camera?entity_id=camera.…`, which serves only the map camera of a vacuum
+on the map (HA's `camera_proxy` with this service's token, so the browser never needs it). Media players are
 controlled from the Now playing panel instead.
 
 ### Now playing
