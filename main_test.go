@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -732,5 +733,67 @@ func TestEntityHandler_VacuumActions(t *testing.T) {
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/entity", strings.NewReader(`{"entity_id":"vacuum.robot","action":"set_fan_speed","fan_speed":"gentle"}`)))
 	if lastBody["fan_speed"] != "gentle" {
 		t.Errorf("set_fan_speed data = %v", lastBody)
+	}
+}
+
+func TestCameraHandler_OnlyAVacuumsMapCamera(t *testing.T) {
+	var cameraHits []string
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/template":
+			fmt.Fprint(w, `[{"id":"hall","name":"Hall","entities":["vacuum.robot","camera.door"],
+				"devices":[{"name":"Robot","entities":["vacuum.robot","camera.robot_map"]},{"name":"Door","entities":["camera.door"]}]}]`)
+		case r.URL.Path == "/api/states":
+			fmt.Fprint(w, `[{"entity_id":"vacuum.robot","state":"cleaning","attributes":{}},
+				{"entity_id":"camera.robot_map","state":"idle","attributes":{}},
+				{"entity_id":"camera.door","state":"idle","attributes":{}}]`)
+		case strings.HasPrefix(r.URL.Path, "/api/camera_proxy/"):
+			cameraHits = append(cameraHits, r.URL.Path)
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "image/png")
+			fmt.Fprint(w, "PNGDATA")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ha.Close()
+	cfg := testConfig(ha.URL)
+	cfg.Devices.Domains = []string{"vacuum"}
+	mux := newMux(cfg, newApp(cfg))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ha-widget/camera?entity_id=camera.robot_map", nil))
+	if rec.Code != 200 || rec.Body.String() != "PNGDATA" {
+		t.Fatalf("map camera: status %d body %q", rec.Code, rec.Body.String())
+	}
+	if ct, cc := rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"); ct != "image/png" || cc != "no-store" {
+		t.Errorf("headers: Content-Type %q, Cache-Control %q", ct, cc)
+	}
+	if len(cameraHits) != 1 || cameraHits[0] != "/api/camera_proxy/camera.robot_map" {
+		t.Errorf("upstream camera calls %v", cameraHits)
+	}
+
+	for _, id := range []string{"camera.door", "camera.elsewhere", "vacuum.robot", "", "camera.robot_map/../x"} {
+		cameraHits = nil
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/camera?entity_id="+url.QueryEscape(id), nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%q: status %d, want 404", id, rec.Code)
+		}
+		if len(cameraHits) != 0 {
+			t.Errorf("%q: camera fetched upstream: %v", id, cameraHits)
+		}
+	}
+}
+
+func TestCameraURL(t *testing.T) {
+	if got := cameraURL("/ha-widget/"); got != "/ha-widget/camera" {
+		t.Errorf("cameraURL = %q", got)
+	}
+	if got := cameraURL(""); got != "" {
+		t.Errorf("cameraURL(\"\") = %q, want empty", got)
 	}
 }

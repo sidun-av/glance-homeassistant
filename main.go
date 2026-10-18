@@ -42,6 +42,9 @@ type app struct {
 	// checks select/number/switch requests against it.
 	ctrlMu   sync.RWMutex
 	controls map[string]bool
+	// mapCameras: the map cameras of the vacuums on the map, the only
+	// cameras /camera proxies.
+	mapCameras map[string]bool
 }
 
 func newApp(cfg *Config) *app {
@@ -373,7 +376,7 @@ func roomCardView(card hass.RoomCard) render.RoomCardView {
 }
 
 func (a *app) recordControls(cards []hass.RoomCard) {
-	ids := map[string]bool{}
+	ids, cams := map[string]bool{}, map[string]bool{}
 	for _, c := range cards {
 		for _, l := range c.Lights {
 			ids[l.EntityID] = true
@@ -383,18 +386,32 @@ func (a *app) recordControls(cards []hass.RoomCard) {
 			for _, e := range d.Extras {
 				ids[e.EntityID] = true
 			}
+			if d.MapCamera != "" {
+				cams[d.MapCamera] = true
+			}
 		}
 	}
 	a.ctrlMu.Lock()
-	a.controls = ids
+	a.controls, a.mapCameras = ids, cams
 	a.ctrlMu.Unlock()
 }
 
 // isControl reports whether the map offers id as a control, rebuilding the
 // model once if it isn't known yet (a freshly started process).
 func (a *app) isControl(ctx context.Context, id string) bool {
+	return a.recorded(ctx, func() bool { return a.controls[id] })
+}
+
+// isMapCamera reports whether id is the map camera of a vacuum on the map.
+func (a *app) isMapCamera(ctx context.Context, id string) bool {
+	return a.recorded(ctx, func() bool { return a.mapCameras[id] })
+}
+
+// recorded evaluates has (under ctrlMu) against the last recorded model,
+// building the model first when nothing has been recorded yet.
+func (a *app) recorded(ctx context.Context, has func() bool) bool {
 	a.ctrlMu.RLock()
-	ok, built := a.controls[id], a.controls != nil
+	ok, built := has(), a.controls != nil
 	a.ctrlMu.RUnlock()
 	if ok || built {
 		return ok
@@ -404,7 +421,7 @@ func (a *app) isControl(ctx context.Context, id string) bool {
 	}
 	a.ctrlMu.RLock()
 	defer a.ctrlMu.RUnlock()
-	return a.controls[id]
+	return has()
 }
 
 func extraViews(extras []hass.Extra) []render.ExtraView {
@@ -532,6 +549,41 @@ func (a *app) artHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	w.Write(body)
+}
+
+// cameraHandler proxies a vacuum's map camera (HA's camera_proxy, which
+// needs the HA token) for the vacuum popover. Only a camera of the same HA
+// device as a vacuum tile on the map is served — not any camera in HA.
+// no-store: the map changes as the robot drives, and the popover refetches
+// it while cleaning.
+func (a *app) cameraHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("entity_id")
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	if !strings.HasPrefix(id, "camera.") || !a.isMapCamera(ctx, id) {
+		http.NotFound(w, r)
+		return
+	}
+	body, ctype, err := a.client.FetchPicture(ctx, "/api/camera_proxy/"+id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if ctype == "" {
+		ctype = http.DetectContentType(body)
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(body)
+}
+
+// cameraURL is where the vacuum popover loads its map from ("" without a
+// public_url → no map).
+func cameraURL(publicURL string) string {
+	if publicURL == "" {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + "/camera"
 }
 
 var mediaActions = map[string]bool{"media_play_pause": true, "media_next_track": true, "media_previous_track": true, "media_play": true, "media_pause": true, "media_stop": true, "volume_set": true, "media_seek": true}
@@ -1217,6 +1269,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 	mux.HandleFunc("/entity", a.entityHandler)
 	mux.HandleFunc("/temperature", a.temperatureHandler)
 	mux.HandleFunc("/art", a.artHandler)
+	mux.HandleFunc("/camera", a.cameraHandler)
 	ed := &editor.Handler{Store: a, Source: a}
 	ed.Register(mux, "")
 
@@ -1237,6 +1290,7 @@ func newMux(cfg *Config, a *app) *http.ServeMux {
 		mux.HandleFunc(prefix+"/entity", a.entityHandler)
 		mux.HandleFunc(prefix+"/temperature", a.temperatureHandler)
 		mux.HandleFunc(prefix+"/art", a.artHandler)
+		mux.HandleFunc(prefix+"/camera", a.cameraHandler)
 		ed.Register(mux, prefix)
 	}
 	return mux
