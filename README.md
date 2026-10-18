@@ -82,13 +82,15 @@ With a `public_url` set, the map is interactive (mouse or touch):
     allows;
   - fan — speed, preset modes (e.g. straight / natural wind), oscillation;
   - climate — target temperature (−/+ and a slider) and HVAC mode; water heater — target;
-  - vacuum — status and battery, Start/Pause, Dock, Locate (when supported), suction from its
+  - vacuum — status and battery, Start/Pause, Dock, Locate (each as its `supported_features` allow), suction from its
     `fan_speed_list`, and the map with the route from the camera of the same HA device (refreshed
     every 10 s while cleaning or returning and once more when the run ends; a refresh that fails
     dims the last map and marks it "Map not updated");
   - plus the device's other controls: every `select` (chips), `number` (slider) and `switch` of the
     same Home Assistant device — a fan's swing angle, level, off timer, beep, child lock… Stock
     Xiaomi names get readable labels; entities renamed in HA keep their names.
+- **Keyboard**: interactive tiles are focusable — Enter/Space is a tap, the context-menu key (or
+  Shift+F10) a long-press, Escape closes the controls.
 - **Click a room's temperature** for a popover with its last 12 hours (now / min / max and a
   crosshair readout).
 

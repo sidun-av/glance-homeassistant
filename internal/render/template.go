@@ -54,12 +54,16 @@ type DeviceView struct {
 	PresetMode     string
 
 	// vacuum only: what the robot is doing (its HA state), battery % (nil =
-	// unknown), suction level and the levels it offers, whether it can be
-	// located, and the same device's map camera (popover image)
+	// unknown), suction level and the levels it offers, which of start/
+	// pause/dock/locate it supports, and the same device's map camera
+	// (popover image)
 	Activity       string
 	Battery        *int
 	FanSpeed       string
 	FanSpeeds      []string
+	SupportsStart  bool
+	SupportsPause  bool
+	SupportsReturn bool
 	SupportsLocate bool
 	MapCamera      string
 
@@ -159,8 +163,13 @@ func vacuumTileAttrs(d DeviceView) string {
 		speeds, _ := json.Marshal(d.FanSpeeds)
 		fmt.Fprintf(&b, ` data-fan-speeds="%s"`, html.EscapeString(string(speeds)))
 	}
-	if d.SupportsLocate {
-		b.WriteString(` data-locate="true"`)
+	for _, f := range []struct {
+		on   bool
+		attr string
+	}{{d.SupportsStart, "start"}, {d.SupportsPause, "pause"}, {d.SupportsReturn, "dock"}, {d.SupportsLocate, "locate"}} {
+		if f.on {
+			fmt.Fprintf(&b, ` data-%s="true"`, f.attr)
+		}
 	}
 	if d.MapCamera != "" {
 		fmt.Fprintf(&b, ` data-map-camera="%s"`, html.EscapeString(d.MapCamera))

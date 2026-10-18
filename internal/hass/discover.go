@@ -79,11 +79,16 @@ type Device struct {
 	// docked, paused, idle, error); Battery comes from battery_level or a
 	// battery sensor of the same device (nil when neither exists); MapCamera
 	// is the same device's camera entity, which the vacuum integrations use
-	// to draw the map and the route of the current or last clean.
+	// to draw the map and the route of the current or last clean. Supports*
+	// come from supported_features: HA refuses a service the robot doesn't
+	// advertise, so the popover only offers the ones it does.
 	Activity       string
 	Battery        *int
 	FanSpeed       string
 	FanSpeeds      []string
+	SupportsStart  bool
+	SupportsPause  bool
+	SupportsReturn bool
 	SupportsLocate bool
 	MapCamera      string
 
@@ -92,8 +97,13 @@ type Device struct {
 	Extras []Extra
 }
 
-// vacuumLocate is VacuumEntityFeature.LOCATE in HA's supported_features.
-const vacuumLocate = 512
+// HA's VacuumEntityFeature bits in supported_features.
+const (
+	vacuumPause      = 4
+	vacuumReturnHome = 16
+	vacuumLocate     = 512
+	vacuumStart      = 8192
+)
 
 // deviceGroupOf finds the HA device entityID belongs to within its room.
 func deviceGroupOf(entityID string, room Room) *DeviceGroup {
@@ -475,7 +485,9 @@ func BuildModel(rooms []Room, states map[string]EntityState, cfg ClassificationC
 					d.Activity = state.State
 					d.Battery = deviceBattery(entityID, state, room, states)
 					d.FanSpeed, d.FanSpeeds = state.FanSpeed, state.FanSpeedList
-					d.SupportsLocate = state.SupportedFeatures&vacuumLocate != 0
+					f := state.SupportedFeatures
+					d.SupportsStart, d.SupportsPause = f&vacuumStart != 0, f&vacuumPause != 0
+					d.SupportsReturn, d.SupportsLocate = f&vacuumReturnHome != 0, f&vacuumLocate != 0
 					d.MapCamera = deviceMapCamera(entityID, room, states)
 				}
 				d.Extras = deviceExtras(entityID, room, states, cfg.DeviceExclude)

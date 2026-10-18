@@ -805,9 +805,11 @@ func TestCameraURL(t *testing.T) {
 func TestRoomCardView_CopiesVacuumFields(t *testing.T) {
 	bat := 77
 	v := roomCardView(hass.RoomCard{Room: "Hall", Devices: []hass.Device{{EntityID: "vacuum.robot", Domain: "vacuum", Effect: "vacuum",
-		Activity: "returning", Battery: &bat, FanSpeed: "gentle", FanSpeeds: []string{"gentle"}, SupportsLocate: true, MapCamera: "camera.robot_map"}}})
+		Activity: "returning", Battery: &bat, FanSpeed: "gentle", FanSpeeds: []string{"gentle"},
+		SupportsStart: true, SupportsPause: true, SupportsReturn: true, SupportsLocate: true, MapCamera: "camera.robot_map"}}})
 	d := v.Devices[0]
-	if d.Activity != "returning" || d.Battery == nil || *d.Battery != 77 || d.FanSpeed != "gentle" || len(d.FanSpeeds) != 1 || !d.SupportsLocate || d.MapCamera != "camera.robot_map" {
+	if d.Activity != "returning" || d.Battery == nil || *d.Battery != 77 || d.FanSpeed != "gentle" || len(d.FanSpeeds) != 1 ||
+		!d.SupportsStart || !d.SupportsPause || !d.SupportsReturn || !d.SupportsLocate || d.MapCamera != "camera.robot_map" {
 		t.Errorf("device view = %+v", d)
 	}
 }

@@ -383,13 +383,13 @@ func TestRenderFloorplanRoom_VacuumTile(t *testing.T) {
 	bat, low := 80, 12
 	r := RoomCardView{Room: "Hall", Devices: []DeviceView{
 		{EntityID: "vacuum.robot", Name: "Robot", Domain: "vacuum", IconSVG: "<svg/>", Effect: "vacuum", Activity: "docked", Battery: &bat,
-			FanSpeed: "normal", FanSpeeds: []string{"gentle", "normal"}, SupportsLocate: true, MapCamera: "camera.robot_map"},
+			FanSpeed: "normal", FanSpeeds: []string{"gentle", "normal"}, SupportsStart: true, SupportsPause: true, SupportsReturn: true, SupportsLocate: true, MapCamera: "camera.robot_map"},
 		{EntityID: "vacuum.low", Name: "Low", Domain: "vacuum", IconSVG: "<svg/>", Effect: "vacuum", Activity: "cleaning", On: true, Battery: &low},
 		{EntityID: "vacuum.bare", Name: "Bare", Domain: "vacuum", IconSVG: "<svg/>", Effect: "vacuum", Activity: "idle"},
 	}}
 	html := renderFloorplanRoom("k", r)
 	for _, want := range []string{
-		`data-effect="vacuum" data-domain="vacuum" data-activity="docked" data-battery="80" data-fan-speed="normal" data-fan-speeds="[&#34;gentle&#34;,&#34;normal&#34;]" data-locate="true" data-map-camera="camera.robot_map"`,
+		`data-effect="vacuum" data-domain="vacuum" data-activity="docked" data-battery="80" data-fan-speed="normal" data-fan-speeds="[&#34;gentle&#34;,&#34;normal&#34;]" data-start="true" data-pause="true" data-dock="true" data-locate="true" data-map-camera="camera.robot_map"`,
 		`data-activity="cleaning" data-battery="12" data-battery-low="true"`,
 		`data-entity-id="vacuum.bare" data-on="false" data-effect="vacuum" data-domain="vacuum" data-activity="idle" title="Bare"`,
 	} {

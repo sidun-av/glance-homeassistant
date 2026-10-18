@@ -594,6 +594,30 @@ func TestEntityControlScript_VacuumMapRefreshesAfterRunAndShowsStale(t *testing.
 	}
 }
 
+func TestEntityControlScript_VacuumPopoverDetails(t *testing.T) {
+	// smoke check: a failed suction change reverts and releases the hold;
+	// battery 0 still shows; Start/Pause/Dock follow supported_features;
+	// the panel, status and chips carry their ARIA; tiles take the keyboard
+	for _, want := range []string{
+		`if(prev==null)delete tile.dataset.fanSpeed;else tile.dataset.fanSpeed=prev;`,
+		`d.battery!==undefined&&d.battery!==''`,
+		`run.disabled=(running?d.pause:d.start)!=='true'`,
+		`d.dock==='true'?`,
+		`panel.setAttribute('aria-label',name)`,
+		`aria-live="polite"`,
+		`c.setAttribute('aria-pressed',String(on))`,
+		`t.tabIndex=0`,
+		`e.key==='Enter'||e.key===' '`,
+	} {
+		if !strings.Contains(entityControlScript, want) {
+			t.Errorf("entityControlScript missing %q", want)
+		}
+	}
+	if strings.Contains(entityControlScript, `if(d.battery)`) {
+		t.Errorf("vacStatus still hides a 0%% battery")
+	}
+}
+
 func TestEntityControlScript_MapNeedsNoCORS(t *testing.T) {
 	// the map is loaded as a plain image (no fetch → /camera needs no CORS)
 	for _, bad := range []string{`fetch(u`, `createObjectURL`} {

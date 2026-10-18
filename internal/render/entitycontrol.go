@@ -10,6 +10,7 @@ const entityControlCSS = `
 	.ha-light,.ha-device{touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 	.ha-light[data-fp-interactive="true"],.ha-device[data-fp-interactive="true"]{cursor:pointer}
 	.ha-light[data-fp-interactive="true"]:hover svg,.ha-device[data-fp-interactive="true"]:hover svg{filter:brightness(1.35)}
+	.ha-light[data-fp-interactive="true"]:focus-visible,.ha-device[data-fp-interactive="true"]:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;border-radius:50%}
 	.ha-fp-icons>.ha-pressing>svg{animation:ha-pop-press .5s ease-out forwards}
 	@keyframes ha-pop-press{to{transform:scale(.8)}}
 
@@ -174,7 +175,12 @@ const entityControlScript = `;(function(img){
 		if(d.domain==='vacuum')return true;
 		return d.hasTargetTemp==='true'||d.hasSpeed==='true'||d.hasOscillate==='true'||!!d.hvacModes||!!d.presetModes||!!d.extras;
 	}
-	root.querySelectorAll('.ha-light,.ha-device').forEach(function(t){if(eligibleTile(t)===t)t.dataset.fpInteractive='true';});
+	// interactive tiles are focusable too: Enter/Space is a tap, the
+	// context-menu key (or Shift+F10) a long-press
+	root.querySelectorAll('.ha-light,.ha-device').forEach(function(t){
+		if(eligibleTile(t)!==t)return;
+		t.dataset.fpInteractive='true';t.tabIndex=0;t.setAttribute('role','button');
+	});
 
 	function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 	function hold(tile){tile.dataset.holdUntil=String(Date.now()+6000);}
@@ -255,8 +261,8 @@ const entityControlScript = `;(function(img){
 	function buildPanel(tile){
 		var d=tile.dataset,isLight=tile.classList.contains('ha-light');
 		var panel=document.createElement('div');
-		panel.className='ha-pop';panel.setAttribute('role','dialog');
 		var name=tile.getAttribute('title')||d.entityId;
+		panel.className='ha-pop';panel.setAttribute('role','dialog');panel.setAttribute('aria-label',name);
 		var sub=d.hasTargetTemp==='true'&&d.currentTemp&&+d.currentTemp?'Now '+deg(d.currentTemp):'';
 		var html='<div class="ha-pop-head"><div style="min-width:0"><div class="ha-pop-title">'+esc(name)+'</div>'+(sub?'<div class="ha-pop-sub">'+sub+'</div>':'')+'</div>'+
 			'<button type="button" class="ha-pop-sw" data-act="power" data-on="'+(d.on==='true')+'" aria-label="On/off"></button></div>';
@@ -331,6 +337,7 @@ const entityControlScript = `;(function(img){
 	// frame. A refresh that fails after a good frame marks the map stale
 	// (dimmed, "Map not updated") instead of silently keeping it.
 	var VAC_LABELS={cleaning:'Cleaning',returning:'Returning to dock',docked:'Docked',paused:'Paused',idle:'Idle',error:'Error'};
+	// "closed" is suction off (mop only) on the Tuya-based robots that use it
 	var FAN_LABELS={closed:'Off',off:'Off'};
 	var VAC_MAP_REFRESH_MS=10000,VAC_MAP_SETTLE_MS=3000;
 	var ICON={
@@ -340,7 +347,7 @@ const entityControlScript = `;(function(img){
 		locate:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M3.05,13H1V11H3.05C3.5,6.83 6.83,3.5 11,3.05V1H13V3.05C17.17,3.5 20.5,6.83 20.95,11H23V13H20.95C20.5,17.17 17.17,20.5 13,20.95V23H11V20.95C6.83,20.5 3.5,17.17 3.05,13M12,5A7,7 0 0,0 5,12A7,7 0 0,0 12,19A7,7 0 0,0 19,12A7,7 0 0,0 12,5Z"/></svg>'
 	};
 	function vacRunning(d){return d.activity==='cleaning'||d.activity==='returning';}
-	function vacStatus(d){var s=VAC_LABELS[d.activity]||d.activity||'';if(d.battery)s+=' · '+d.battery+'%';return s;}
+	function vacStatus(d){var s=VAC_LABELS[d.activity]||d.activity||'';if(d.battery!==undefined&&d.battery!=='')s+=' · '+d.battery+'%';return s;}
 	function fanLabel(s){return FAN_LABELS[s]||(s.charAt(0).toUpperCase()+s.slice(1).replace(/_/g,' '));}
 	function setActivity(tile,a){tile.dataset.activity=a;tile.dataset.on=String(a==='cleaning'||a==='returning');}
 	function vacuumCmd(tile,action,next,data){
@@ -357,11 +364,12 @@ const entityControlScript = `;(function(img){
 	}
 	function buildVacPanel(tile){
 		var d=tile.dataset,panel=document.createElement('div');
-		panel.className='ha-pop ha-pop-vac';panel.setAttribute('role','dialog');
-		var html='<div class="ha-pop-head"><div style="min-width:0"><div class="ha-pop-title">'+esc(tile.getAttribute('title')||d.entityId)+'</div>'+
-			'<div class="ha-pop-sub" data-out="vac-status"></div></div></div>'+
+		var name=tile.getAttribute('title')||d.entityId;
+		panel.className='ha-pop ha-pop-vac';panel.setAttribute('role','dialog');panel.setAttribute('aria-label',name);
+		var html='<div class="ha-pop-head"><div style="min-width:0"><div class="ha-pop-title">'+esc(name)+'</div>'+
+			'<div class="ha-pop-sub" data-out="vac-status" aria-live="polite"></div></div></div>'+
 			'<div class="ha-pop-acts"><button type="button" class="ha-pop-act" data-vac="run"></button>'+
-			'<button type="button" class="ha-pop-act" data-vac="dock">'+ICON.dock+'Dock</button>'+
+			(d.dock==='true'?'<button type="button" class="ha-pop-act" data-vac="dock">'+ICON.dock+'Dock</button>':'')+
 			(d.locate==='true'?'<button type="button" class="ha-pop-act" data-vac="locate">'+ICON.locate+'Locate</button>':'')+'</div>';
 		var speeds=parse(d.fanSpeeds||'[]',[]);
 		if(speeds.length)html+='<div class="ha-pop-row"><span class="ha-pop-label">Suction</span><div class="ha-pop-chips">'+speeds.map(function(s){
@@ -378,9 +386,14 @@ const entityControlScript = `;(function(img){
 	function refreshVac(panel,tile){
 		var d=tile.dataset,running=vacRunning(d);
 		var st=panel.querySelector('[data-out="vac-status"]');if(st){st.textContent=vacStatus(d);st.dataset.activity=d.activity||'';}
-		var run=panel.querySelector('[data-vac="run"]');if(run){run.innerHTML=running?ICON.pause+'Pause':ICON.play+'Start';run.dataset.on=String(running);}
+		var run=panel.querySelector('[data-vac="run"]');
+		if(run){
+			run.innerHTML=running?ICON.pause+'Pause':ICON.play+'Start';run.dataset.on=String(running);
+			// HA refuses a service the robot doesn't advertise
+			run.disabled=(running?d.pause:d.start)!=='true';run.title=run.disabled?'Not supported by this robot':'';
+		}
 		var dock=panel.querySelector('[data-vac="dock"]');if(dock)dock.disabled=d.activity==='docked'||d.activity==='returning';
-		panel.querySelectorAll('[data-fan-speed]').forEach(function(c){c.dataset.on=String(c.dataset.fanSpeed===d.fanSpeed);});
+		panel.querySelectorAll('[data-fan-speed]').forEach(function(c){var on=c.dataset.fanSpeed===d.fanSpeed;c.dataset.on=String(on);c.setAttribute('aria-pressed',String(on));});
 	}
 	var vacTimer=null,vacObs=null,vacSettle=null;
 	function loadMap(panel,tile){
@@ -452,9 +465,12 @@ const entityControlScript = `;(function(img){
 				return;
 			}
 			if(btn.dataset.fanSpeed!=null){
-				var fs=btn.dataset.fanSpeed;
+				var fs=btn.dataset.fanSpeed,prev=tile.dataset.fanSpeed;
 				tile.dataset.fanSpeed=fs;hold(tile);
-				post('set_fan_speed',tile.dataset.entityId,{fan_speed:fs}).catch(function(err){showErr(err.message);});return;
+				post('set_fan_speed',tile.dataset.entityId,{fan_speed:fs}).catch(function(err){
+					if(prev==null)delete tile.dataset.fanSpeed;else tile.dataset.fanSpeed=prev;
+					delete tile.dataset.holdUntil;showErr(err.message);
+				});return;
 			}
 			if(btn.dataset.preset){
 				var pm=btn.dataset.preset;
@@ -564,4 +580,9 @@ const entityControlScript = `;(function(img){
 	});
 	root.addEventListener('pointercancel',cancelPress);
 	root.addEventListener('contextmenu',function(e){if(eligibleTile(e.target))e.preventDefault();});
+	root.addEventListener('keydown',function(e){
+		var tile=e.target.dataset&&e.target.dataset.fpInteractive==='true'?e.target:null;if(!tile)return;
+		if(e.key==='Enter'||e.key===' '){e.preventDefault();tapTile(tile);}
+		else if((e.key==='ContextMenu'||(e.key==='F10'&&e.shiftKey))&&canPopover(tile)){e.preventDefault();openPopover(tile);}
+	});
 })(this)`

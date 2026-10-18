@@ -349,7 +349,7 @@ func TestBuildModel_VacuumFields(t *testing.T) {
 		}}}
 	states := map[string]EntityState{
 		"vacuum.robot": {EntityID: "vacuum.robot", Domain: "vacuum", State: "cleaning", FriendlyName: "Robot",
-			FanSpeed: "normal", FanSpeedList: []string{"gentle", "normal", "strong"}, SupportedFeatures: 512 | 8192},
+			FanSpeed: "normal", FanSpeedList: []string{"gentle", "normal", "strong"}, SupportedFeatures: 4 | 16 | 512 | 8192},
 		"sensor.robot_battery": {Domain: "sensor", State: "87", DeviceClass: "battery"},
 		"sensor.robot_area":    {Domain: "sensor", State: "12", DeviceClass: "area"},
 		"camera.robot_cam":     {Domain: "camera", State: "idle"},
@@ -372,11 +372,13 @@ func TestBuildModel_VacuumFields(t *testing.T) {
 	}
 	r := by["vacuum.robot"]
 	if !r.On || r.Effect != "vacuum" || r.Activity != "cleaning" || r.Battery == nil || *r.Battery != 87 ||
-		r.FanSpeed != "normal" || len(r.FanSpeeds) != 3 || !r.SupportsLocate || r.MapCamera != "camera.robot_map" {
+		r.FanSpeed != "normal" || len(r.FanSpeeds) != 3 || !r.SupportsStart || !r.SupportsPause || !r.SupportsReturn || !r.SupportsLocate ||
+		r.MapCamera != "camera.robot_map" {
 		t.Errorf("vacuum.robot = %+v (battery %v)", r, r.Battery)
 	}
 	o := by["vacuum.other"]
-	if o.On || o.Effect != "vacuum" || o.Activity != "docked" || o.Battery == nil || *o.Battery != 64 || o.SupportsLocate || o.MapCamera != "" {
+	if o.On || o.Effect != "vacuum" || o.Activity != "docked" || o.Battery == nil || *o.Battery != 64 ||
+		!o.SupportsStart || o.SupportsPause || o.SupportsReturn || o.SupportsLocate || o.MapCamera != "" {
 		t.Errorf("vacuum.other = %+v", o)
 	}
 }
