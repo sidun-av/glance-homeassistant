@@ -149,6 +149,9 @@ func ReadingFrom(s hass.RawState, battery *float64) Reading {
 	case strings.HasPrefix(id, "climate."):
 		modes := ModeTable(strs(attrs, "hvac_modes"))
 		ac := map[string]any{"on": value != "off"}
+		// On, but not running right now: a thermostat whose room is already warm (or cool) enough.
+		action, _ := attrs["hvac_action"].(string)
+		ac["idle"] = value != "off" && (action == "idle" || action == "off")
 		for _, m := range panelModes {
 			if name, ok := modes[m.panel]; ok && name == value {
 				ac["mode"] = m.panel

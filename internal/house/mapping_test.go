@@ -95,6 +95,20 @@ func TestReading_Light(t *testing.T) {
 	eq(t, "switch", ReadingFrom(st("switch.p", "on", nil), nil).Light, map[string]any{"on": true})
 }
 
+func TestReading_ClimateIdle(t *testing.T) {
+	idle := func(state string, action any) any {
+		attrs := map[string]any{"hvac_modes": []string{"off", "heat"}, "temperature": 21}
+		if action != nil {
+			attrs["hvac_action"] = action
+		}
+		return ReadingFrom(st("climate.heater", state, decoded(t, attrs)), nil).AC["idle"]
+	}
+	eq(t, "heat/idle", idle("heat", "idle"), true)
+	eq(t, "heat/heating", idle("heat", "heating"), false)
+	eq(t, "heat/none", idle("heat", nil), false)
+	eq(t, "off/off", idle("off", "off"), false)
+}
+
 func TestReading_Climate(t *testing.T) {
 	r := ReadingFrom(st("climate.hvac", "fan_only", decoded(t, map[string]any{
 		"hvac_modes": []string{"off", "heat", "cool", "auto", "dry", "fan_only"}, "temperature": 21,
@@ -109,6 +123,7 @@ func TestReading_Climate(t *testing.T) {
 	eq(t, "fan", r.AC["fan"], "high")
 	eq(t, "swing", r.AC["swing"], "off")
 	eq(t, "eco", r.AC["eco"], true)
+	eq(t, "idle", r.AC["idle"], false)
 	if _, ok := r.AC["sleep"]; ok {
 		t.Error("sleep reported for an entity without a sleep preset")
 	}
