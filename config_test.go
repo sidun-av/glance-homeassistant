@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -637,5 +638,83 @@ home_assistant:
 	_, err := LoadConfig(path)
 	if err == nil || !strings.Contains(err.Error(), "house.lang") {
 		t.Errorf("err = %v, want one mentioning house.lang", err)
+	}
+}
+
+func TestLoadConfig_HouseInstall(t *testing.T) {
+	const sum = "0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef"
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.House.AppURL != "" || cfg.House.AppSHA256 != "" || cfg.House.HAURLForMacs != "http://homeassistant:8123" {
+		t.Errorf("defaults = %+v, want installs off and the Macs' HA URL = home_assistant.url", cfg.House)
+	}
+
+	t.Setenv("HOUSE_APP_URL", "https://example.com/releases/HouseControl.zip")
+	t.Setenv("HOUSE_APP_SHA256", " "+sum+"\n")
+	t.Setenv("HOUSE_HA_URL", "http://ha.lan:8123")
+	cfg, err = LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.House.AppURL != "https://example.com/releases/HouseControl.zip" || cfg.House.AppSHA256 != strings.ToLower(sum) || cfg.House.HAURLForMacs != "http://ha.lan:8123" {
+		t.Errorf("from env = %+v", cfg.House)
+	}
+
+	for name, env := range map[string][2]string{
+		"house.app_sha256":      {"HOUSE_APP_SHA256", "abc123"},
+		"house.app_url":         {"HOUSE_APP_URL", "https://example.com/x'; rm -rf ~"},
+		"house.app_url ":        {"HOUSE_APP_URL", "ftp://example.com/x.zip"},
+		"house.ha_url_for_macs": {"HOUSE_HA_URL", "ha.lan:8123"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(env[0], env[1])
+			if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), strings.TrimSpace(name)) {
+				t.Errorf("%s=%q: err = %v, want one mentioning %s", env[0], env[1], err, name)
+			}
+		})
+	}
+
+	yamlOnlyURL := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+house:
+  app_url: https://example.com/a.zip
+`)
+	t.Setenv("HOUSE_APP_URL", "") // empty: not an override
+	t.Setenv("HOUSE_APP_SHA256", "")
+	if _, err := LoadConfig(yamlOnlyURL); err == nil || !strings.Contains(err.Error(), "set together") {
+		t.Errorf("app_url without its hash: err = %v", err)
+	}
+}
+
+func TestLoadConfig_HouseInstallHosts(t *testing.T) {
+	path := writeTempConfig(t, `
+home_assistant:
+  url: http://homeassistant:8123
+  token: test-token
+house:
+  install_hosts: "  Dash.Example.com   glance.lan "
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil || !reflect.DeepEqual(cfg.House.InstallHostList, []string{"dash.example.com", "glance.lan"}) {
+		t.Errorf("from YAML: %q %v", cfg.House.InstallHostList, err)
+	}
+	t.Setenv("HOUSE_INSTALL_HOSTS", "a.example")
+	if cfg, err = LoadConfig(path); err != nil || !reflect.DeepEqual(cfg.House.InstallHostList, []string{"a.example"}) {
+		t.Errorf("from env: %q %v", cfg.House.InstallHostList, err)
+	}
+	for _, bad := range []string{"https://a.example", "a.example:443", "a.example,b.example", "a.example/x"} {
+		t.Setenv("HOUSE_INSTALL_HOSTS", bad)
+		if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "house.install_hosts") {
+			t.Errorf("%q: err = %v, want one mentioning house.install_hosts", bad, err)
+		}
 	}
 }

@@ -1,0 +1,384 @@
+#!/bin/sh
+# House Control installer for a household Mac, rendered by the widget server
+# for one install code. It carries no secret: the Home Assistant key is
+# fetched with the code, from the home network only.
+#
+#	curl -fsSL '<this script>' | sh                 install or update
+#	curl -fsSL '<this script>' | sh -s uninstall    remove it again
+#
+# A code works once, so the installer also leaves an uninstaller that needs
+# none: sh ~/Library/Application\ Support/HouseControl/uninstall.sh
+#
+# Everything runs from main, called on the last line, so a command that
+# reads stdin cannot eat the rest of the script.
+set -eu
+
+BASE={{sh .Base}}
+CODE={{sh .Code}}
+APP_URL={{sh .AppURL}}
+APP_SHA256={{sh .AppSHA256}}
+
+# common prints what the installer and its uninstaller (uninstall.sh, next
+# to the plan) share: paths, messages, taking the app down and uninstall.
+common() {
+	cat <<'COMMON'
+APP_NAME='House Control.app'
+APP_EXE='House Control.app/Contents/MacOS/HouseControl'
+DATA="$HOME/Library/Application Support/HouseControl"
+AGENTS="$HOME/Library/LaunchAgents"
+PULLER="$DATA/plan-pull.sh"
+UNINSTALLER="$DATA/uninstall.sh"
+PULL_LOG="$HOME/Library/Logs/house-control-plan-pull.log"
+PULL_AGENT='local.house-control.plan-pull'
+OPEN_AGENT='local.house-control.open'
+# The owner's plan pusher (tools/house-plan-push): its Mac is the main one.
+PUSH_AGENT='com.glance-homeassistant.house-plan-push'
+
+say() { printf '%s\n' "$*"; }
+
+# fail stops with a line that says what to do next.
+fail() {
+	FAILED=1
+	printf '%s\n' "$*" >&2
+	exit 1
+}
+
+app_running() { pgrep -U "$(id -u)" -f "/$APP_EXE" >/dev/null 2>&1; }
+
+# quit_app stops this account's running House Control: SIGTERM (the app
+# exits cleanly on it), up to 10 s, then SIGKILL. No Apple event, so no
+# "Terminal wants to control" dialog; an update never leaves two copies.
+quit_app() {
+	app_running || return 0
+	say "Закрываю запущенный House Control…"
+	pkill -TERM -U "$(id -u)" -f "/$APP_EXE" >/dev/null 2>&1 || true
+	i=0
+	while app_running; do
+		if [ "$i" -ge 20 ]; then
+			pkill -KILL -U "$(id -u)" -f "/$APP_EXE" >/dev/null 2>&1 || true
+			sleep 1
+			return 0
+		fi
+		sleep 0.5
+		i=$((i + 1))
+	done
+}
+
+uninstall() {
+	say "Удаляю House Control…"
+	for label in "$PULL_AGENT" "$OPEN_AGENT"; do
+		launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+		rm -f "$AGENTS/$label.plist"
+	done
+	quit_app
+	for dir in "${HC_APPLICATIONS_DIR:-/Applications}" "$HOME/Applications"; do
+		if [ -e "$dir/$APP_NAME" ]; then
+			rm -rf "$dir/$APP_NAME" ||
+				fail "Не удалось удалить $dir/$APP_NAME. Перетащите его в Корзину и запустите команду ещё раз."
+		fi
+	done
+	rm -f "$PULLER" "$UNINSTALLER" "$DATA/plan.etag" "$DATA/.plan.json.new" "$DATA/homeassistant.json" "$PULL_LOG"
+	say "План и настройки (plan.json, settings.json) оставлены: без приложения они ничего не делают."
+	say "Готово: House Control удалён. Ключ этого Mac в Home Assistant может отключить владелец дома."
+}
+COMMON
+}
+eval "$(common)"
+
+# SITE is the host the install command is copied from.
+SITE=${BASE#*://}
+SITE=${SITE%%/*}
+
+# jxa runs JavaScript for Automation: the JSON reader every Mac has.
+jxa() { osascript -l JavaScript "$@" </dev/null; }
+
+# JS_READ is a JXA function: a UTF-8 file's text, or null.
+JS_READ='function read(p) { var s = $.NSString.stringWithContentsOfFileEncodingError(p, $.NSUTF8StringEncoding, null); return s.isNil() ? null : s.js }'
+
+work_dir() {
+	WORK=$(mktemp -d "${TMPDIR:-/tmp}/house-control.XXXXXX") ||
+		fail "Не удалось создать временную папку. Перезагрузите Mac и запустите команду ещё раз."
+	trap 'st=$?; rm -rf "$WORK"; if [ "$st" -ne 0 ] && [ -z "${FAILED:-}" ]; then echo "Установка прервалась. Запустите команду ещё раз; если не поможет — напишите тому, кто прислал ссылку." >&2; fi' EXIT
+	trap 'exit 1' HUP INT TERM
+}
+
+xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+
+# agent_plist <label> <extra keys> <program> [args…] prints a LaunchAgent
+# that runs at load.
+agent_plist() {
+	label=$1
+	extra=$2
+	shift 2
+	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' '<dict>'
+	printf '  <key>Label</key><string>%s</string>\n' "$label"
+	printf '  <key>ProgramArguments</key>\n  <array>\n'
+	for arg; do
+		printf '    <string>%s</string>\n' "$(xml "$arg")"
+	done
+	printf '  </array>\n  <key>RunAtLoad</key><true/>\n%s</dict>\n</plist>\n' "$extra"
+}
+
+# load_agent <label> replaces the loaded copy of ~/Library/LaunchAgents/<label>.plist.
+# launchd removes a booted-out job asynchronously, and bootstrap fails
+# ("5: Input/output error") until it is gone: wait up to 5 s, then try
+# bootstrap three times.
+load_agent() {
+	target="gui/$(id -u)"
+	launchctl bootout "$target/$1" >/dev/null 2>&1 || true
+	i=0
+	while [ "$i" -lt 10 ] && launchctl print "$target/$1" >/dev/null 2>&1; do
+		sleep 0.5
+		i=$((i + 1))
+	done
+	i=1
+	until launchctl bootstrap "$target" "$AGENTS/$1.plist" >/dev/null 2>&1; do
+		[ "$i" -lt 3 ] ||
+			fail "Не удалось включить автозапуск House Control. Перезагрузите Mac и запустите команду ещё раз."
+		sleep 1
+		i=$((i + 1))
+	done
+}
+
+# write_puller writes plan-pull.sh with this server's address in it: no
+# code, no key.
+write_puller() {
+	{
+		printf '#!/bin/sh\n'
+		printf "BASE='%s'\n" "$BASE"
+		cat <<'PULLER'
+# House Control plan puller, written by the installer: fetches the home's
+# plan from the widget server (LaunchAgent local.house-control.plan-pull,
+# every 10 minutes). Anything but a JSON object with "rooms" (a sign-in
+# page away from home, an error) leaves plan.json as it is.
+set -u
+DIR="$HOME/Library/Application Support/HouseControl"
+PLAN="$DIR/plan.json"
+ETAG="$DIR/plan.etag"
+LOG="$HOME/Library/Logs/house-control-plan-pull.log"
+
+log() {
+	mkdir -p "${LOG%/*}"
+	if [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 100000 ]; then
+		tail -n 200 "$LOG" >"$LOG.tmp" && mv -f "$LOG.tmp" "$LOG"
+	fi
+	printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG"
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/house-control-plan.XXXXXX") || {
+	log "no temp dir"
+	exit 1
+}
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+
+set --
+if [ -s "$PLAN" ] && [ -s "$ETAG" ]; then
+	set -- -H "If-None-Match: $(cat "$ETAG")"
+fi
+# X-House-Client: this is a household Mac, not the owner's plan pusher.
+status=$(curl -sS --max-time 30 -H 'X-House-Client: mac' -D "$tmp/headers" -o "$tmp/plan.json" -w '%{http_code}' "$@" "$BASE/plan" 2>"$tmp/error") || {
+	log "no connection: $(cat "$tmp/error")"
+	exit 1
+}
+case $status in
+304) exit 0 ;;
+200) ;;
+*)
+	log "HTTP $status, plan kept"
+	exit 1
+	;;
+esac
+if ! osascript -l JavaScript -e '
+function read(p) { var s = $.NSString.stringWithContentsOfFileEncodingError(p, $.NSUTF8StringEncoding, null); return s.isNil() ? null : s.js }
+function run(argv) {
+	var v = JSON.parse(read(argv[0]))
+	if (!v || typeof v !== "object" || Array.isArray(v) || !("rooms" in v)) throw new Error("not a plan")
+	return "ok"
+}' "$tmp/plan.json" >/dev/null 2>&1 </dev/null; then
+	log "not a plan, plan kept"
+	exit 1
+fi
+mkdir -p "$DIR"
+# Copied next to plan.json first, so the app only ever sees a whole file.
+cp "$tmp/plan.json" "$DIR/.plan.json.new" && mv -f "$DIR/.plan.json.new" "$PLAN" || {
+	log "cannot write $PLAN"
+	exit 1
+}
+etag=$(sed -n 's/^[Ee][Tt][Aa][Gg]:[[:space:]]*//p' "$tmp/headers" | tr -d '\r' | tail -n 1)
+if [ -n "$etag" ]; then
+	printf '%s\n' "$etag" >"$ETAG"
+else
+	rm -f "$ETAG"
+fi
+log "plan updated"
+PULLER
+	} >"$WORK/plan-pull.sh"
+	chmod 755 "$WORK/plan-pull.sh"
+	mv -f "$WORK/plan-pull.sh" "$PULLER"
+}
+
+# write_uninstaller writes uninstall.sh: what `sh -s uninstall` does,
+# without a code.
+write_uninstaller() {
+	{
+		printf '#!/bin/sh\n# House Control uninstaller, written by the installer.\nset -eu\n'
+		common
+		printf 'uninstall\n'
+	} >"$WORK/uninstall.sh"
+	chmod 755 "$WORK/uninstall.sh"
+	mv -f "$WORK/uninstall.sh" "$UNINSTALLER"
+}
+
+# preflight refuses a Mac this install is not for, before anything is
+# downloaded or a key is minted: the owner's own Mac (it runs the plan
+# pusher, and a pulled plan would overwrite the edits made there) and a
+# macOS older than the app needs.
+preflight() {
+	for plist in "$AGENTS/$PUSH_AGENT.plist" "${HC_LAUNCH_DAEMONS_DIR:-/Library/LaunchDaemons}/$PUSH_AGENT.plist"; do
+		[ ! -e "$plist" ] ||
+			fail "Этот Mac — главный: на нём план редактируют, сюда устанавливать не нужно."
+	done
+	version=$(sw_vers -productVersion 2>/dev/null || true)
+	major=${version%%.*}
+	case $major in
+	'' | *[!0-9]*) ;;
+	*)
+		[ "$major" -ge 13 ] ||
+			fail "House Control работает на macOS 13 и новее, а на этом Mac macOS $version. Обновите macOS в Системных настройках и запустите команду ещё раз."
+		;;
+	esac
+}
+
+install() {
+	preflight
+	say "Устанавливаю House Control…"
+	work_dir
+
+	say "Скачиваю приложение…"
+	curl -fsSL --retry 2 -o "$WORK/app.zip" "$APP_URL" 2>/dev/null ||
+		fail "Не удалось скачать приложение. Проверьте интернет и запустите команду ещё раз."
+	sum=$(shasum -a 256 "$WORK/app.zip" | cut -d ' ' -f 1)
+	want=$(printf '%s' "$APP_SHA256" | tr 'A-F' 'a-f')
+	[ "$sum" = "$want" ] ||
+		fail "Скачанный файл не прошёл проверку (контрольная сумма не совпала), ничего не изменено. Запустите команду ещё раз через пару минут."
+	mkdir "$WORK/app"
+	ditto -x -k "$WORK/app.zip" "$WORK/app" && [ -x "$WORK/app/$APP_EXE" ] ||
+		fail "Скачанный архив не открылся, ничего не изменено. Запустите команду ещё раз через пару минут."
+	# The LaunchAgents name the app, so macOS's "Background Items Added"
+	# notice says House Control rather than "sh" or "open".
+	bundle_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$WORK/app/$APP_NAME/Contents/Info.plist" 2>/dev/null || true)
+	associated=
+	if [ -n "$bundle_id" ]; then
+		associated="  <key>AssociatedBundleIdentifiers</key><array><string>$(xml "$bundle_id")</string></array>
+"
+	fi
+
+	say "Получаю ключ к Home Assistant…"
+	person=$(id -F 2>/dev/null || true)
+	[ -n "$person" ] || person=$(id -un)
+	computer=$(scutil --get ComputerName 2>/dev/null || true)
+	[ -n "$computer" ] || computer=$(hostname -s)
+	jxa -e 'function run(argv) { return JSON.stringify({person: argv[0], computer: argv[1]}) }' \
+		"$person" "$computer" >"$WORK/request.json"
+	status=$(curl -sS --max-time 60 -o "$WORK/key.json" -w '%{http_code}' -X POST \
+		-H 'Content-Type: application/json' --data-binary @"$WORK/request.json" \
+		"$BASE/install/$CODE/key" 2>/dev/null) ||
+		fail "Нет связи с сервером дома. Проверьте, что Mac подключён к домашнему Wi-Fi, и запустите команду ещё раз."
+	case $status in
+	200) ;;
+	410) fail "Ссылка устарела — откройте $SITE и скопируйте команду заново." ;;
+	403) fail "Установка работает только из дома: подключитесь к домашнему Wi-Fi и попробуйте снова." ;;
+	*) fail "Сервер дома не выдал ключ (ошибка $status). Попробуйте ещё раз через минуту." ;;
+	esac
+	# The key goes from the answer straight into the file: never into a
+	# command line or onto the screen.
+	(
+		umask 077
+		jxa -e "$JS_READ"'
+function run(argv) {
+	var ha = JSON.parse(read(argv[0])).homeassistant
+	if (!ha || typeof ha.url !== "string" || !ha.url || typeof ha.token !== "string" || !ha.token) throw new Error("no key")
+	return JSON.stringify({url: ha.url, token: ha.token, name: ha.name || "Home Assistant"}, null, 2)
+}' "$WORK/key.json" >"$WORK/homeassistant.json" 2>/dev/null
+	) || fail "Сервер дома ответил непонятно. Скопируйте команду заново и запустите её ещё раз."
+	chmod 600 "$WORK/homeassistant.json"
+
+	say "Устанавливаю приложение…"
+	apps=${HC_APPLICATIONS_DIR:-/Applications}
+	if [ ! -d "$apps" ] || [ ! -w "$apps" ]; then
+		apps="$HOME/Applications"
+		mkdir -p "$apps" || fail "Не удалось создать папку $apps. Перезагрузите Mac и запустите команду ещё раз."
+	fi
+	app="$apps/$APP_NAME"
+	new="$apps/.House Control.new.$$"
+	old="$apps/.House Control.old.$$"
+	quit_app
+	rm -rf "$new"
+	ditto "$WORK/app/$APP_NAME" "$new" || {
+		rm -rf "$new"
+		fail "Не удалось скопировать приложение в $apps. Освободите место на диске и запустите команду ещё раз."
+	}
+	if [ -e "$app" ]; then
+		mv "$app" "$old" || {
+			rm -rf "$new"
+			fail "Не удалось заменить старую версию в $apps. Закройте House Control и запустите команду ещё раз."
+		}
+	fi
+	mv "$new" "$app" || {
+		[ ! -e "$old" ] || mv "$old" "$app"
+		fail "Не удалось установить приложение в $apps. Запустите команду ещё раз."
+	}
+	rm -rf "$old" 2>/dev/null || true
+
+	say "Настраиваю на ваш дом…"
+	mkdir -p "$DATA" || fail "Не удалось создать папку настроек. Перезагрузите Mac и запустите команду ещё раз."
+	mv -f "$WORK/homeassistant.json" "$DATA/homeassistant.json"
+	# settings.json keeps whatever else the app has put there.
+	jxa -e "$JS_READ"'
+function run(argv) {
+	var s = {}
+	try {
+		var v = JSON.parse(read(argv[0]))
+		if (v && typeof v === "object" && !Array.isArray(v)) s = v
+	} catch (e) {}
+	s.plan = "custom"
+	s.lang = "ru"
+	return JSON.stringify(s, null, 2)
+}' "$DATA/settings.json" >"$WORK/settings.json"
+	mv -f "$WORK/settings.json" "$DATA/settings.json"
+	write_puller
+	write_uninstaller
+
+	say "Загружаю план дома…"
+	if ! /bin/sh "$PULLER"; then
+		say "План дома пока не загрузился — он подтянется сам в течение 10 минут."
+	fi
+
+	say "Включаю автозапуск…"
+	mkdir -p "$AGENTS"
+	agent_plist "$PULL_AGENT" "  <key>StartInterval</key><integer>600</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardErrorPath</key><string>$(xml "$PULL_LOG")</string>
+$associated" /bin/sh "$PULLER" >"$AGENTS/$PULL_AGENT.plist"
+	agent_plist "$OPEN_AGENT" "$associated" /usr/bin/open -g -a "$app" >"$AGENTS/$OPEN_AGENT.plist"
+	say "macOS покажет уведомление «Добавлены фоновые объекты» — это House Control, так и должно быть."
+	load_agent "$PULL_AGENT"
+	load_agent "$OPEN_AGENT"
+
+	open -a "$app" || fail "House Control установлен, но не открылся. Откройте его из папки $apps."
+	say "Готово: House Control в строке меню. Наведите на «чёлку» или нажмите на домик."
+}
+
+main() {
+	[ "$(uname -s)" = Darwin ] || fail "Эта команда только для Mac."
+	case ${1:-} in
+	'') install ;;
+	uninstall) uninstall ;;
+	*) fail "Неизвестный параметр «$1». Скопируйте команду заново." ;;
+	esac
+}
+
+main "$@"

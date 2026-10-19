@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -38,6 +39,23 @@ type HouseConfig struct {
 	// FrameAncestors replaces the 3D page's CSP frame-ancestors list (see
 	// houseFrameAncestors); empty derives it from public_url.
 	FrameAncestors string `yaml:"frame_ancestors"` // env: HOUSE_FRAME_ANCESTORS
+	// AppURL and AppSHA256 are the House Control release (a zip of the app)
+	// a household Mac installs from the dashboard, and its SHA-256 (64 hex
+	// digits) that the install script checks. Both or neither; neither
+	// turns installs off.
+	AppURL    string `yaml:"app_url"`    // env: HOUSE_APP_URL
+	AppSHA256 string `yaml:"app_sha256"` // env: HOUSE_APP_SHA256
+	// HAURLForMacs is the Home Assistant URL an installed Mac uses (this
+	// server's home_assistant.url may be a name only the container
+	// resolves); default home_assistant.url.
+	HAURLForMacs string `yaml:"ha_url_for_macs"` // env: HOUSE_HA_URL
+	// InstallHosts are the host names (no scheme or port, space-separated)
+	// the dashboard and this container are reached by. The install routes
+	// refuse any other Host or Origin except an IP literal, so a site a LAN
+	// visitor opens cannot reach them by re-pointing its name here (DNS
+	// rebinding).
+	InstallHosts    string   `yaml:"install_hosts"` // env: HOUSE_INSTALL_HOSTS
+	InstallHostList []string `yaml:"-"`
 }
 
 // DevicesConfig picks which non-light entities get a tile on the map.
@@ -185,6 +203,9 @@ func LoadConfig(path string) (*Config, error) {
 	if strings.ContainsAny(cfg.House.FrameAncestors, ";,") {
 		return nil, fmt.Errorf("house.frame_ancestors must be a space-separated CSP source list, got %q", cfg.House.FrameAncestors)
 	}
+	if err := checkHouseInstall(&cfg); err != nil {
+		return nil, err
+	}
 	if cfg.Layout != "cards" && cfg.Layout != "floorplan" {
 		return nil, fmt.Errorf("layout must be \"cards\" or \"floorplan\", got %q", cfg.Layout)
 	}
@@ -207,6 +228,50 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+var (
+	sha256Re      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	installHostRe = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
+)
+
+// checkHouseInstall validates the install settings (see HouseConfig). The
+// app URL is put into a shell script in single quotes, so it may not hold
+// a quote or whitespace.
+func checkHouseInstall(cfg *Config) error {
+	h := &cfg.House
+	h.AppURL = strings.TrimSpace(h.AppURL)
+	h.AppSHA256 = strings.ToLower(strings.TrimSpace(h.AppSHA256))
+	h.HAURLForMacs = strings.TrimSpace(h.HAURLForMacs)
+	if (h.AppURL == "") != (h.AppSHA256 == "") {
+		return fmt.Errorf("house.app_url and house.app_sha256 must be set together")
+	}
+	if h.AppURL != "" && !httpURL(h.AppURL) {
+		return fmt.Errorf("house.app_url %q must be an http(s) URL", h.AppURL)
+	}
+	if h.AppSHA256 != "" && !sha256Re.MatchString(h.AppSHA256) {
+		return fmt.Errorf("house.app_sha256 must be 64 hex digits, got %q", h.AppSHA256)
+	}
+	if h.HAURLForMacs == "" {
+		h.HAURLForMacs = cfg.HomeAssistant.URL
+	}
+	if !httpURL(h.HAURLForMacs) {
+		return fmt.Errorf("house.ha_url_for_macs %q must be an http(s) URL", h.HAURLForMacs)
+	}
+	h.InstallHostList = nil
+	for _, host := range strings.Fields(h.InstallHosts) {
+		if !installHostRe.MatchString(host) {
+			return fmt.Errorf("house.install_hosts must be space-separated host names without scheme or port, got %q", host)
+		}
+		h.InstallHostList = append(h.InstallHostList, strings.ToLower(host))
+	}
+	return nil
+}
+
+func httpURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
+		!strings.ContainsAny(s, "'\"` \t\r\n")
 }
 
 // lookupNonEmptyEnv returns (value, true) only when the environment variable
@@ -323,6 +388,18 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v, ok := lookupNonEmptyEnv("HOUSE_FRAME_ANCESTORS"); ok {
 		cfg.House.FrameAncestors = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_APP_URL"); ok {
+		cfg.House.AppURL = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_APP_SHA256"); ok {
+		cfg.House.AppSHA256 = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_HA_URL"); ok {
+		cfg.House.HAURLForMacs = v
+	}
+	if v, ok := lookupNonEmptyEnv("HOUSE_INSTALL_HOSTS"); ok {
+		cfg.House.InstallHosts = v
 	}
 	if v, ok := lookupNonEmptyEnv("LAYOUT"); ok {
 		cfg.Layout = v

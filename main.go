@@ -1209,6 +1209,7 @@ func (a *app) widgetHTML(ctx context.Context, fp *render.Floorplan, editHref, ho
 		PollIntervalMS:  int(pollInterval.Milliseconds()),
 		PauseWhenHidden: a.cfg.Live.PauseWhenHidden != nil && *a.cfg.Live.PauseWhenHidden,
 		HouseURL:        houseHref,
+		HouseInstall:    houseHref != "" && a.cfg.House.AppURL != "" && a.cfg.House.AppSHA256 != "",
 		Lang:            a.cfg.House.Lang,
 	}
 
@@ -1349,6 +1350,13 @@ func houseHandler(cfg *Config, a *app) *house.Handler {
 		Dist:   a.houseDist,
 
 		FrameAncestors: houseFrameAncestors(cfg),
+
+		Persons:   a.client,
+		HAURL:     cfg.House.HAURLForMacs,
+		AppURL:    cfg.House.AppURL,
+		AppSHA256: cfg.House.AppSHA256,
+
+		InstallHosts: cfg.House.InstallHostList,
 	}
 }
 

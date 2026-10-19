@@ -130,6 +130,10 @@ func do(mux http.Handler, method, target string, body string, headers ...string)
 			req.RemoteAddr = headers[i+1]
 			continue
 		}
+		if headers[i] == "Host" {
+			req.Host = headers[i+1]
+			continue
+		}
 		req.Header.Set(headers[i], headers[i+1])
 	}
 	rec := httptest.NewRecorder()
@@ -161,7 +165,11 @@ func TestPlan_GetNoPlan404(t *testing.T) {
 }
 
 func TestPlan_GetServesFilteredWithETagAnd304(t *testing.T) {
-	h, mux := newTestHandler(t, newFakeHA(), true)
+	// No battery sensor known: the plan goes out exactly as stored (see
+	// TestPlan_BatteryHint for the other case).
+	ha := newFakeHA()
+	ha.template = ""
+	h, mux := newTestHandler(t, ha, true)
 	rec := do(mux, http.MethodGet, "/house/plan", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -298,7 +306,7 @@ func TestState_NoPlan404(t *testing.T) {
 
 func TestState_ShapeAndPlanVersion(t *testing.T) {
 	ha := newFakeHA()
-	h, mux := newTestHandler(t, ha, true)
+	_, mux := newTestHandler(t, ha, true)
 	rec := do(mux, http.MethodGet, "/ha-widget/house/state", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d %s", rec.Code, rec.Body.String())
@@ -320,8 +328,9 @@ func TestState_ShapeAndPlanVersion(t *testing.T) {
 	if len(body) != 5 {
 		t.Errorf("state keys = %v, want exactly five", keys)
 	}
-	if body["planVersion"] != h.Store.Current().ETag {
-		t.Errorf("planVersion = %v", body["planVersion"])
+	// The panel reloads when planVersion is not the ETag it got the plan with.
+	if etag := do(mux, http.MethodGet, "/house/plan", "").Header().Get("ETag"); body["planVersion"] != etag {
+		t.Errorf("planVersion = %v, want the plan's ETag %s", body["planVersion"], etag)
 	}
 	robot := body["vacuums"].(map[string]any)["h.robot"].(map[string]any)
 	if robot["battery"] != 42.0 || robot["status"] != "docked" {

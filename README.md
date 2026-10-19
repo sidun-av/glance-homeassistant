@@ -244,10 +244,39 @@ container's own port.
 | Endpoint | What it does |
 |---|---|
 | `GET /house/` | The House Control page, with its boot config (API path, language) injected. Static files are under `/house/assets/`. |
-| `GET /house/plan` | The stored plan, filtered to the HA-linked devices, with an `ETag`. Returns 404 `{"error":"no_plan"}` before the first upload. |
+| `GET /house/plan` | The stored plan, filtered to the HA-linked devices, with an `ETag`. A vacuum's `link` gains `"battery": "<sensor>"` when the server knows its battery sensor (the ETag then covers it too; the uploaded plan's own ETag still answers 304, except to a household Mac's plan puller, which sends `X-House-Client: mac` and must fetch the plan with the battery sensor). Returns 404 `{"error":"no_plan"}` before the first upload. |
 | `PUT /house/plan` | Upload a plan. Needs `Authorization: Bearer <HOUSE_PLAN_SECRET>`. The rules are listed below. |
-| `GET /house/state` | Current state of the plan's devices, keyed by plan id, plus `planVersion` (the plan's ETag; open views reload when it changes). Returns 503 `{"error":"unavailable"}` when Home Assistant is down or slow. |
+| `GET /house/state` | Current state of the plan's devices, keyed by plan id, plus `planVersion` (the `GET /house/plan` ETag; open views reload when it changes). Returns 503 `{"error":"unavailable"}` when Home Assistant is down or slow. |
 | `POST /house/command` | `{"kind","id","patch","state"}` with `Content-Type: application/json`. Accepted only for a device in the served plan, and only for patch keys and values that are allowed for its kind. Add `?dry_run=1` to get back the Home Assistant service calls it would make, without making them. The server as a whole takes about 10 commands a second (bursts of 30); past that it answers 429 `{"error":"rate_limited"}`. |
+| `POST /house/install/code` | A one-time install code for a household Mac: `{"code","path"}`. The widget shows `curl -fsSL '<origin><path>' \| sh`. Codes live in memory for 30 minutes; about 10 a minute for the whole server, then 429. |
+| `GET /house/install/<code>` | The install script for that code (`text/plain`). It carries the code, this server's URL and the app's URL and SHA-256, never a token. Fetching it does not use the code up. A used, unknown or expired code gets a short script instead (still 200, so `curl -f` stays quiet) that tells the person in Russian to copy the command again from the dashboard and exits 1. |
+| `POST /house/install/<code>/key` | `{"person","computer"}` (1–80 characters each) with `Content-Type: application/json`, from the home network only. Answers `{"homeassistant":{"url","token","name"}}` with that person's own Home Assistant key and uses the code up; a used, unknown or expired code is 410 `{"error":"expired"}`. |
+
+The install routes are 404 until `HOUSE_APP_URL` and `HOUSE_APP_SHA256` are set and a plan has
+been uploaded. A key is only minted for a request whose TCP peer has a private address and which,
+if it came through the reverse proxy (`X-Forwarded-For`, `X-Real-IP` or `Forwarded` present),
+carries a private `X-Real-IP`: your proxy must set `X-Real-IP` to the client's address (Nginx
+Proxy Manager does). All three install routes also refuse (403) a `Host`, and an `Origin` when
+one is sent, that is neither an IP address nor one of `HOUSE_INSTALL_HOSTS`. Without that, any
+website a LAN visitor opens could point its own name at this server (DNS rebinding) and mint a
+key from their browser. List every name the dashboard and this container are reached by. A
+refused request leaves the code usable.
+
+A code is not tied to a person: whoever holds one can name any person and computer, and gets a key
+for that person's Home Assistant user (created if it is new); the code only proves that the request
+came from someone who could open the dashboard. The key is named after the computer, and a user
+keeps one key per name, so re-installing with the same person and computer name replaces (revokes)
+that Mac's previous key.
+
+The script installs the app, the household member's key, the plan and two LaunchAgents (a plan
+pull every 10 minutes, and House Control at login). To remove it all again, run
+`sh ~/Library/Application\ Support/HouseControl/uninstall.sh` on that Mac (`… | sh -s uninstall`
+works too while a code is fresh); it keeps `plan.json` and `settings.json`.
+
+The script refuses, before it downloads anything or asks for a key, a Mac that runs the plan pusher
+(`com.glance-homeassistant.house-plan-push` in `~/Library/LaunchAgents` or `/Library/LaunchDaemons`):
+that is the owner's Mac, where the plan is edited, and a pulled plan would overwrite it. It also
+refuses macOS older than 13, which the app needs.
 
 `PUT /house/plan` rules:
 
@@ -422,6 +451,10 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `HOUSE_PLAN_SECRET` | `house.secret` | `""` (uploads off) | Bearer secret for `PUT /house/plan`; empty disables uploads |
 | `HOUSE_LANG` | `house.lang` | `en` | Language of the Plan/3D switch, the Dock card and the 3D view: `en` or `ru` |
 | `HOUSE_FRAME_ANCESTORS` | `house.frame_ancestors` | `""` (from `public_url`) | CSP `frame-ancestors` sources that may embed the 3D page, replacing the derived list (see "Who can embed the 3D page") |
+| `HOUSE_APP_URL` | `house.app_url` | `""` (installs off) | The House Control release (zip) a household Mac installs from the dashboard (see "3D home") |
+| `HOUSE_APP_SHA256` | `house.app_sha256` | `""` | SHA-256 of that zip, 64 hex digits; set together with `HOUSE_APP_URL` |
+| `HOUSE_HA_URL` | `house.ha_url_for_macs` | `home_assistant.url` | The Home Assistant URL an installed Mac uses |
+| `HOUSE_INSTALL_HOSTS` | `house.install_hosts` | `""` (IP addresses only) | Space-separated host names, without scheme or port, that the install routes accept in `Host`/`Origin` |
 
 The service's own listen port and config-file path aren't `config.yml` fields — they're read from
 the environment before any config is loaded, so they're always plain environment variables:

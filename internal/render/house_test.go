@@ -9,8 +9,18 @@ import (
 func houseWidgetData(lang string) WidgetData {
 	d := sampleWidgetData()
 	d.HouseURL = "/ha-widget/house/"
+	d.HouseInstall = true
 	d.Lang = lang
 	return d
+}
+
+// houseInvite is the invite card's markup in a rendered widget.
+func houseInvite(html string) string {
+	i, j := strings.Index(html, `class="ha-house-invite"`), strings.Index(html, `class="ha-house-frame"`)
+	if i < 0 || j < i {
+		return ""
+	}
+	return html[i:j]
 }
 
 func TestRenderWidget_NoHouseURLNoSwitch(t *testing.T) {
@@ -25,12 +35,26 @@ func TestRenderWidget_NoHouseURLNoSwitch(t *testing.T) {
 func TestRenderWidget_HouseSwitchRussian(t *testing.T) {
 	html := RenderWidget(houseWidgetData("ru"))
 	for _, s := range []string{
-		`>План<`, `>3D<`, `Добавить в Dock`, `Не сейчас`, `Готово`, `Файл`,
-		`data-house-url="/ha-widget/house/"`, `data-frame-title="Дом в 3D"`,
+		`>План<`, `>3D<`, `data-house-url="/ha-widget/house/"`, `data-frame-title="Дом в 3D"`,
 		`class="ha-house-invite" hidden`, `class="ha-house-frame"`, `haHouseInitialView`,
+		`<b>House Control на Mac</b>`, `3D-дом в строке меню и в «чёлке», уже настроенный на ваш дом.`,
+		`data-house-act="install">Установить<`, `data-house-act="later">Напомнить завтра<`,
+		`data-house-act="close" aria-label="Не показывать"`,
+		`1. Откройте Терминал (⌘ Пробел → «Терминал»).`, `2. Нажмите «Скопировать команду».`,
+		`3. Вставьте её в Терминал (⌘V) и нажмите Enter.`,
+		`data-house-act="copy">Скопировать команду<`, `data-house-act="done">Готово<`,
+		`data-copied="Скопировано ✓"`, `data-failed="Не получилось — обновите страницу"`,
+		`Скопируйте: ⌘C`, `data-code-url="/ha-widget/house/install/code"`, `>Терминал</text>`,
 	} {
 		if !strings.Contains(html, s) {
 			t.Errorf("Russian house widget lacks %q", s)
+		}
+	}
+	// The vacuum popover has a Dock button of its own; the invite and the
+	// script must not mention the Dock or Safari any more.
+	for _, s := range []string{"Dock", "Safari", "data-house-dock"} {
+		if strings.Contains(houseInvite(html), s) || strings.Contains(houseScript, s) {
+			t.Errorf("Russian house widget still has %q", s)
 		}
 	}
 	if strings.Contains(html, "<iframe") {
@@ -55,10 +79,14 @@ func TestRenderWidget_HouseSwitchRussian(t *testing.T) {
 func TestRenderWidget_HouseCopyEnglishDefault(t *testing.T) {
 	for _, lang := range []string{"", "en", "xx"} {
 		html := RenderWidget(houseWidgetData(lang))
-		for _, s := range []string{`>Plan<`, `>3D<`, `Add to Dock`, `Not now`, `>Done<`} {
+		for _, s := range []string{`>Plan<`, `>3D<`, `>Install<`, `>Remind me tomorrow<`, `aria-label="Don&#39;t show again"`,
+			`>Copy command<`, `>Done<`, `>Terminal</text>`} {
 			if !strings.Contains(html, s) {
 				t.Errorf("lang %q: lacks %q", lang, s)
 			}
+		}
+		if strings.Contains(houseInvite(html), "Dock") {
+			t.Errorf("lang %q: Dock copy left in", lang)
 		}
 		if strings.Contains(html, "План") {
 			t.Errorf("lang %q: Russian copy in the English widget", lang)
@@ -72,6 +100,22 @@ func TestRenderWidget_HouseURLIsEscaped(t *testing.T) {
 	html := RenderWidget(d)
 	if strings.Contains(html, `"><script>`) {
 		t.Errorf("house URL not escaped")
+	}
+}
+
+// Without installs configured the switch and the 3D view stay, the invite
+// does not.
+func TestRenderWidget_NoInviteWithoutInstalls(t *testing.T) {
+	d := houseWidgetData("ru")
+	d.HouseInstall = false
+	html := RenderWidget(d)
+	if strings.Contains(html, `class="ha-house-invite"`) {
+		t.Errorf("invite rendered while installs are off")
+	}
+	for _, s := range []string{"ha-house-switch", "ha-house-frame", "houseBooted"} {
+		if !strings.Contains(html, s) {
+			t.Errorf("widget without installs lacks %q", s)
+		}
 	}
 }
 
@@ -91,25 +135,44 @@ assert.equal(iv('3d', true), '3d');
 assert.equal(iv('junk', false), '3d');
 assert.equal(iv('junk', true), 'plan');
 assert.equal(iv(undefined, false), '3d');
-const safari17 = process.env.SAFARI17;
-const sub = (from, to) => safari17.replace(from, to);
-assert.equal(inv(safari17, 0, false, false, false), true, 'Safari 17 on a Mac');
-assert.equal(inv(sub('Version/17.4', 'Version/18.0'), 0, false, false, false), true, 'Safari 18');
-assert.equal(inv(sub('Version/17.4', 'Version/26.0'), 0, undefined, false, false), true, 'Safari 26, standalone undefined');
-assert.equal(inv(safari17, 0, false, false, true), false, 'dismissed');
-assert.equal(inv(safari17, 0, true, false, false), false, 'navigator.standalone');
-assert.equal(inv(safari17, 0, false, true, false), false, 'display-mode standalone');
-assert.equal(inv(safari17, 5, false, false, false), false, 'iPad (touch points)');
-assert.equal(inv(safari17, undefined, false, false, false), false, 'no maxTouchPoints');
-assert.equal(inv('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36', 0, false, false, false), false, 'Chrome');
-assert.equal(inv('Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0', 0, false, false, false), false, 'Firefox');
-assert.equal(inv('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0', 0, false, false, false), false, 'Edge');
-assert.equal(inv(sub('Version/17.4', 'Version/16.6'), 0, false, false, false), false, 'Safari 16');
-assert.equal(inv(sub('Version/17.4 ', ''), 0, false, false, false), false, 'no Version/');
-assert.equal(inv('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1', 0, false, false, false), false, 'iPhone');
-assert.equal(inv('', 0, false, false, false), false, 'empty UA');
+const safari = process.env.SAFARI17;
+const chrome = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
+const firefox = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0';
+const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
+const now = 1760000000000;
+assert.equal(inv(safari, 0, null, null, now), true, 'Safari on a Mac');
+assert.equal(inv(chrome, 0, null, null, now), true, 'Chrome on a Mac');
+assert.equal(inv(firefox, 0, null, null, now), true, 'Firefox on a Mac');
+assert.equal(inv(safari, 5, null, null, now), false, 'iPad (Macintosh UA, touch points)');
+assert.equal(inv(safari, undefined, null, null, now), false, 'no maxTouchPoints');
+assert.equal(inv(iphone, 0, null, null, now), false, 'iPhone');
+assert.equal(inv('', 0, null, null, now), false, 'empty UA');
+assert.equal(inv(chrome, 0, 'dismissed', null, now), false, 'dismissed');
+assert.equal(inv(chrome, 0, 'started:' + (now - 1000), null, now), false, 'started a second ago');
+assert.equal(inv(chrome, 0, 'started:' + (now - 864e5 + 1000), null, now), false, 'started almost a day ago');
+assert.equal(inv(chrome, 0, 'started:' + (now - 864e5), null, now), true, 'started a day ago: a fresh command');
+assert.equal(inv(chrome, 0, 'started:junk', null, now), true, 'started at a junk time');
+assert.equal(inv(chrome, 0, 'started', null, now), true, 'started with no time');
+assert.equal(inv(chrome, 0, 'junk', null, now), true, 'unknown state');
+assert.equal(inv(chrome, 0, null, String(now + 1000), now), false, 'remind in the future');
+assert.equal(inv(chrome, 0, null, String(now - 1000), now), true, 'remind in the past');
+assert.equal(inv(chrome, 0, null, String(now), now), true, 'remind now');
+assert.equal(inv(chrome, 0, null, 'junk', now), true, 'junk remind');
+const done = haHouseDoneState;
+assert.equal(done('started:' + now), 'dismissed', '«Готово» after a copy');
+assert.equal(inv(chrome, 0, done('started:' + now), null, now + 2 * 864e5), false, 'a finished install never comes back');
+assert.equal(done(null), null, '«Готово» without a copy stores nothing');
+assert.equal(done('junk'), null, '«Готово» over an unknown state');
+const cmd = haHouseCommand, fresh = haHouseCodeFresh;
+assert.equal(cmd('/ha-widget/house/install/abc', 'http://dash.example:8080'), "curl -fsSL 'http://dash.example:8080/ha-widget/house/install/abc' | sh");
+assert.equal(cmd('https://home.example/ha-widget/house/install/abc', 'http://10.0.0.5'), "curl -fsSL 'https://home.example/ha-widget/house/install/abc' | sh", 'absolute path');
+assert.equal(fresh(0, now), false, 'no code yet');
+assert.equal(fresh(now - 24 * 60e3, now), true, 'a 24-minute-old code');
+assert.equal(fresh(now - 25 * 60e3, now), false, 'a 25-minute-old code');
 `
-	cmd := exec.Command(node, "-e", houseDecideJS+assertions)
+	// An onerror handler runs with the document in scope, where URL is
+	// document.URL, a string: the with block shadows it the same way.
+	cmd := exec.Command(node, "-e", "with({URL: 'http://shadow.example/'}){"+houseDecideJS+assertions+"}")
 	cmd.Env = append(cmd.Environ(), "SAFARI17="+safari17)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("node: %v\n%s", err, out)

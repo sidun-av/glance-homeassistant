@@ -216,9 +216,12 @@ type WidgetData struct {
 	PollIntervalMS  int
 	PauseWhenHidden bool
 	// HouseURL is where the 3D view's page is (<public_url>/house/); ""
-	// means no Plan | 3D switch, no Dock invite and no 3D (see house.go).
+	// means no Plan | 3D switch, no install invite and no 3D (see house.go).
 	HouseURL string
-	Lang     string // HOUSE_LANG: "en" (default) or "ru", for the switch and the invite
+	// HouseInstall: the server can install House Control on a Mac (the
+	// app's URL and hash are configured), so the invite is rendered.
+	HouseInstall bool
+	Lang         string // HOUSE_LANG: "en" (default) or "ru", for the switch and the invite
 }
 
 // chartCSS is a near-literal port of Glance's own static/css/widget-weather.css
@@ -456,7 +459,7 @@ func RenderWidget(data WidgetData) string {
 	}
 	b.WriteString(`<div class="ha-section-head"><span class="ha-section-label">Home</span>` + switchHTML + `<span class="ha-live-badge"><span class="ha-live-dot"></span>live</span></div>`)
 	if data.HouseURL != "" {
-		b.WriteString(renderHouseParts(data.HouseURL, house))
+		b.WriteString(renderHouseParts(data.HouseURL, data.HouseInstall, house))
 	}
 
 	if data.Layout == "floorplan" && data.Floorplan != nil {

@@ -33,12 +33,14 @@ type HA interface {
 
 // Handler serves the 3D home under <prefix>/house/:
 //
-//	GET  /house/plan     the stored plan, filtered (ETag, 304 on If-None-Match)
+//	GET  /house/plan     the stored plan, filtered (ETag, 304 on If-None-Match;
+//	                     X-House-Client marks a household Mac's puller)
 //	PUT  /house/plan     upload from the owner's Mac (bearer secret, LAN only)
 //	GET  /house/state    device state in House Control's applyRemote shape + planVersion
 //	POST /house/command  {kind,id,patch,state} → Home Assistant service calls
 //	GET  /house/         House Control's page with its boot config
 //	GET  /house/assets/* the page's files
+//	*    /house/install/* a household Mac's install (see install.go)
 //
 // Bodies toward the browser carry error codes only; Home Assistant's own
 // errors (which name its URL) go to the server log.
@@ -55,6 +57,18 @@ type Handler struct {
 	// origins allowed to embed it (its controls must not be clickjackable
 	// from any site a LAN visitor opens). Empty means "'self'".
 	FrameAncestors string
+	// Persons mints a household member's Home Assistant key; HAURL is the
+	// Home Assistant URL their Mac uses. AppURL and AppSHA256 are the House
+	// Control release the install script downloads and checks. Installs
+	// are off (404) while any of Persons, AppURL and AppSHA256 is unset.
+	Persons   PersonKeys
+	HAURL     string
+	AppURL    string
+	AppSHA256 string
+	// InstallHosts are the host names (no port) this server is reached by;
+	// the install routes refuse any other Host or Origin except an IP
+	// literal (DNS rebinding, see sameSite).
+	InstallHosts []string
 
 	statesMu  sync.Mutex
 	states    map[string]hass.RawState
@@ -68,6 +82,10 @@ type Handler struct {
 	devMu     sync.Mutex
 	devLocks  map[string]chan struct{}
 	commands  tokenBucket
+
+	installMu    sync.Mutex
+	installCodes map[string]time.Time // code → when it expires
+	installRate  tokenBucket
 
 	clock func() time.Time // nil: time.Now (tests set it)
 }
@@ -91,6 +109,7 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.Handle(prefix+"/house/plan", nosniff(http.HandlerFunc(h.plan)))
 	mux.Handle(prefix+"/house/state", nosniff(http.HandlerFunc(h.state)))
 	mux.Handle(prefix+"/house/command", nosniff(http.HandlerFunc(h.command)))
+	mux.Handle(prefix+"/house/install/", nosniff(h.install(prefix+"/house/install")))
 	page := nosniff(h.page(prefix))
 	mux.Handle(prefix+"/house/", page)
 	mux.Handle(prefix+"/house", page)
@@ -128,16 +147,30 @@ func (h *Handler) plan(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "no_plan")
 			return
 		}
-		w.Header().Set("ETag", p.ETag)
+		batteries := h.batterySensors(p)
+		etag := p.ETagWith(batteries)
+		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "no-cache")
-		if etagMatches(r.Header.Get("If-None-Match"), p.ETag) {
+		// The uploaded plan's own ETag is what the owner's plan pusher asks
+		// with. A household Mac's puller says so in X-House-Client: it keeps
+		// the plan it was served, so only that plan's ETag is current for it
+		// (a plain ETag from before a battery hint must fetch the hint).
+		inm := r.Header.Get("If-None-Match")
+		pusher := r.Header.Get("X-House-Client") == ""
+		if etagMatches(inm, etag) || (pusher && etagMatches(inm, p.ETag)) {
 			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		body, err := p.ServedWith(batteries)
+		if err != nil {
+			log.Printf("house: plan: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
-			w.Write(p.Served())
+			w.Write(body)
 		}
 	case http.MethodPut:
 		h.upload(w, r)
@@ -255,8 +288,9 @@ func (h *Handler) state(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	snap := Snapshot(p, states, h.batterySensors(p))
-	snap["planVersion"] = p.ETag
+	batteries := h.batterySensors(p)
+	snap := Snapshot(p, states, batteries)
+	snap["planVersion"] = p.ETagWith(batteries)
 	writeJSON(w, http.StatusOK, snap)
 }
 

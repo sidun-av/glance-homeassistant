@@ -64,6 +64,63 @@ func (e *PlanError) Error() string { return "invalid plan: " + e.Reason }
 // Devices (so nothing in the web view is simulated or silently inert).
 func (p *Plan) Served() []byte { return p.served }
 
+// batteryHints is "vacuum\tsensor\n" for each served vacuum batteries
+// names a well-formed battery sensor for, in plan order.
+func (p *Plan) batteryHints(batteries map[string]string) (map[string]string, string) {
+	hints := map[string]string{}
+	var key strings.Builder
+	for _, d := range p.Devices {
+		s := batteries[d.EntityID]
+		if d.Kind != KindVacuum || !safeEntityID.MatchString(s) || !hasDomain(s, []string{"sensor."}) {
+			continue
+		}
+		hints[d.EntityID] = s
+		key.WriteString(d.EntityID + "\t" + s + "\n")
+	}
+	return hints, key.String()
+}
+
+// ETagWith is the ETag of ServedWith(batteries): the plan's own ETag when
+// no vacuum gains a battery sensor, otherwise one that covers the sensors
+// too.
+func (p *Plan) ETagWith(batteries map[string]string) string {
+	_, key := p.batteryHints(batteries)
+	if key == "" {
+		return p.ETag
+	}
+	sum := sha256.Sum256([]byte(p.ETag + "\n" + key))
+	return `"` + hex.EncodeToString(sum[:])[:16] + `"`
+}
+
+// ServedWith is Served with each vacuum's link carrying "battery": the
+// sensor batteries names for it, so that a Mac whose key cannot look the
+// sensor up (a non-admin key cannot render templates) still reads it.
+func (p *Plan) ServedWith(batteries map[string]string) ([]byte, error) {
+	hints, _ := p.batteryHints(batteries)
+	if len(hints) == 0 {
+		return p.served, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(p.served))
+	dec.UseNumber()
+	var top map[string]any
+	if err := dec.Decode(&top); err != nil {
+		return nil, fmt.Errorf("decode served plan: %w", err)
+	}
+	vacuums, _ := top["vacuums"].([]any)
+	for _, item := range vacuums {
+		obj, _ := item.(map[string]any)
+		link, _ := obj["link"].(map[string]any)
+		if entity, ok := haLink(link); ok && hints[entity] != "" {
+			link["battery"] = hints[entity]
+		}
+	}
+	out, err := json.Marshal(top)
+	if err != nil {
+		return nil, fmt.Errorf("encode plan: %w", err)
+	}
+	return out, nil
+}
+
 // Device looks a served device up by its plan id.
 func (p *Plan) Device(appID string) (Device, bool) {
 	i, ok := p.byID[appID]
