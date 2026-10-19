@@ -1337,6 +1337,19 @@ func houseFrameAncestors(cfg *Config) string {
 	return "'self' http://" + host + ":* https://" + host + ":*"
 }
 
+// personKeys returns the HA client the per-person key minting uses: the admin
+// token and HTTP client of client, but pointed at the address the Macs use
+// (house.ha_url_for_macs). Per-person users are local_only, so the login flow
+// must reach HA by the same home-network address the Mac will, not through a
+// reverse proxy that makes HA see the login as non-local.
+func personKeys(cfg *Config, client *hass.Client) *hass.Client {
+	return &hass.Client{
+		HTTPClient: client.HTTPClient,
+		BaseURL:    strings.TrimRight(cfg.House.HAURLForMacs, "/"),
+		Token:      client.Token,
+	}
+}
+
 // houseHandler serves the 3D view's page and API. Its Base is the path the
 // browser reaches it by (through public_url), whichever prefix the request
 // actually arrives with.
@@ -1351,7 +1364,7 @@ func houseHandler(cfg *Config, a *app) *house.Handler {
 
 		FrameAncestors: houseFrameAncestors(cfg),
 
-		Persons:   a.client,
+		Persons:   personKeys(cfg, a.client),
 		HAURL:     cfg.House.HAURLForMacs,
 		AppURL:    cfg.House.AppURL,
 		AppSHA256: cfg.House.AppSHA256,

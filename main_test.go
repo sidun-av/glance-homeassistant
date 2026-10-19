@@ -1022,3 +1022,16 @@ func TestWidgetHandler_HouseSwitchNeedsPlanAndPublicURL(t *testing.T) {
 		})
 	}
 }
+
+func TestPersonKeysUsesMacURL(t *testing.T) {
+	admin := hass.New("https://ha.example/", "admin-token")
+	cfg := &Config{}
+	cfg.House.HAURLForMacs = "http://ha.lan:8123/"
+	p := personKeys(cfg, admin)
+	if p.BaseURL != "http://ha.lan:8123" || p.Token != "admin-token" || p.HTTPClient != admin.HTTPClient {
+		t.Fatalf("personKeys = %+v", p)
+	}
+	if admin.BaseURL != "https://ha.example" {
+		t.Fatalf("admin client mutated: %q", admin.BaseURL)
+	}
+}

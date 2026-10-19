@@ -453,7 +453,7 @@ to use the built-in default (or whatever `config.yml` has, if you're mounting on
 | `HOUSE_FRAME_ANCESTORS` | `house.frame_ancestors` | `""` (from `public_url`) | CSP `frame-ancestors` sources that may embed the 3D page, replacing the derived list (see "Who can embed the 3D page") |
 | `HOUSE_APP_URL` | `house.app_url` | `""` (installs off) | The House Control release (zip) a household Mac installs from the dashboard (see "3D home") |
 | `HOUSE_APP_SHA256` | `house.app_sha256` | `""` | SHA-256 of that zip, 64 hex digits; set together with `HOUSE_APP_URL` |
-| `HOUSE_HA_URL` | `house.ha_url_for_macs` | `home_assistant.url` | The Home Assistant URL an installed Mac uses |
+| `HOUSE_HA_URL` | `house.ha_url_for_macs` | `home_assistant.url` | The Home Assistant URL an installed Mac uses. Per-person keys are minted against this URL (login flow, client_id/redirect_uri, token), so with local-only users it must be HA's home-network address, not a reverse-proxy one |
 | `HOUSE_INSTALL_HOSTS` | `house.install_hosts` | `""` (IP addresses only) | Space-separated host names, without scheme or port, that the install routes accept in `Host`/`Origin` |
 
 The service's own listen port and config-file path aren't `config.yml` fields — they're read from
